@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+# public NIST documents: re-download with scripts/fetch_sources.sh (checksums in sources/SHA256SUMS)
+sources/nist/
+sources/errata/
+sources/faq/
+sources/text/
+sources/figures/
+# drawing scans (NIST FOIA via archive.org): re-download with scripts/fetch_drawings.sh
+sources/drawings/raw/
+# solver build products and local tool installs
+wtc7/xfe/_kernel_*.so
+tools/
+# CalculiX scratch output from phase1/verify_xfe.py
+results/phase1/shell/ccx_work/
