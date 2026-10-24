@@ -98,7 +98,8 @@ def source_hashes():
     out = []
     for line in (ROOT / "sources" / "SHA256SUMS").read_text().splitlines():
         h, f = line.split()
-        out.append((f, h))
+        if not f.startswith("drawings/"):  # the drawing scans have their own table
+            out.append((f, h))
     return out
 
 
@@ -270,8 +271,10 @@ The 16-story ANSYS model (§11.3) found walk-off at column 79 on floor 13 betwee
     # ------------------------------------------------------------ evidence
     S.append('<h2 id="evidence">3. Evidence base</h2>')
     S.append('<h3 id="ev-sources">3.1 Documents and checksums</h3>')
-    S.append("<p>NIST documents are re-downloaded and verified by <code>scripts/fetch_sources.sh</code>; drawing scans by "
-             "<code>scripts/fetch_drawings.sh</code>. Downloaded files are treated as untrusted data and never executed.</p>")
+    S.append("<p>Every downloaded document is archived in the repository (<code>sources/README.md</code>), so the work can be "
+             "checked if the originals are taken down. <code>sources/SHA256SUMS</code> covers all of them; "
+             "<code>scripts/fetch_sources.sh</code> and <code>scripts/fetch_drawings.sh</code> restore any missing file from its "
+             "original URL. Downloaded files are treated as untrusted data and never executed.</p>")
     S.append(table(["File", "SHA-256"], [(code(f), code(h)) for f, h in source_hashes()]))
     S.append(table(["Local file", "Sheet", "Source", "Retrieved (UTC)", "SHA-256"],
                    [(code(a), E(b), f'<a href="{E(c)}">archive.org</a>', E(d), code(h)) for a, b, c, d, h in drawing_sources()]))

@@ -1,0 +1,116 @@
+                             January 2009 Text Changes to the NIST Reports of the
+                   Federal Building and Fire Investigation of the World Trade Center Disaster,
+                         NCSTAR 1A, NIST NCSTAR 1-9, and NIST NCSTAR 1-9A
+
+Based on comments received, NIST has made the following changes to the reports on the collapse of
+World Trade Center Building 7:
+
+1. In reports NIST NCSTAR 1A, NIST NCSTAR 1-9, and NIST NCSTAR 1-9A, appended the
+following two rows to the end of Table P–2. Public meetings and briefings of the WTC
+Investigation, with accompanying footnote:
+
+ August 21, 2008*         Gaithersburg, MD;             Media and public briefing on release of all draft reports
+                          Teleconference                for WTC 7 and draft recommendations for public
+                                                        comment.
+ August 26, 2008*         Teleconference                Technical briefing on the probable collapse sequence
+                                                        for WTC 7, draft reports for WTC 7, and draft
+                                                        recommendations for public comment.
+
+* Appended to table January 2009.
+
+
+
+2. In report NIST NCSTAR 1-9, Volume 2, Chapter 11, page 533, corrected the text, with
+accompanying footnote, as follows:
+
+Comparing Figure 11–51* to Figure 4-7, it can be seen that the temperature rise in the lower flange and
+web is similar. Figure 4-7 shows the temperature of a W24x55 floor beam with 0.5 in. of SFRM in a
+composite floor assembly for a constant 1100 °C gas temperature below the concrete slab. Figure 11–51*
+shows the temperature of a W24x55 beam (no concrete slab) with 0.53 in. of SFRM for a constant
+1100 °C gas temperature. The beam without a slab analysis was conducted to evaluate the effect of
+SFRM thickness on steel temperature for a floor beam. The lower flange and web in Figure 4-7 and the
+beam in Figure 11–51* both reached 600 °C in 25 to 30 min.
+
+Thus, an increase in the SFRM thickness on the floor beams would have delayed heating of the floor
+beams by 10 min to 20 min, but would not* have altered the outcome.
+
+
+* Corrected text January 2009. Changes were made to this page only. Similar statements are correct in the original text for Chapter 11
+Summary and in the findings and recommendations in NIST NCSTAR 1A.
+
+
+
+3. In report NIST NCSTAR 1-9, Volume 2, Appendix D, pages 699 and 709, deleted text and added
+footnotes as follows:
+
+Section D.3.3, Page 699, first sentence
+A Shard Fly-out Model (SFOM) [Meyer 2002*, Marchand 2002] was used to predict window breakage, based on the
+pressure profiles from the SHAMRC analysis.
+
+* Deleted reference January 2009. All pertinent material is contained in Meyers 2002.
+
+Section D.6, Page 709
+Marchand, Kirk A., 2002. “Analysis of Insulated Glass Units Subjected to Blast Loadings: Model and
+Data Comparisons,” AMSAA Contract DAADM01-97-D-0013, ARA Project Number 0093, Applied
+Research Associates, San Antonio, Texas, July 19.
+
+** Deleted reference January 2009. All pertinent material is contained in Meyers 2002.**
+
+http://www.nist.gov/el/disasterstudies/wtc/wtc_finalreports.cfm                                             last update 6/27/12
+                              April 2012 Text Changes to the NIST Reports of the
+                   Federal Building and Fire Investigation of the World Trade Center Disaster,
+                                               NIST NCSTAR 1-9
+
+NIST has made the following changes to the report on the collapse of World Trade Center Building 7:
+
+1. In Chapter 8, page 342, Footnote 2, text changed as follows:
+ 2
+     Taken from Erection Drawings, sheet E12/13, 12th & 13th Floor Framing Plan.
+ 2
+     Taken from Structural Drawing S-8, Typical floor framing plan 8th to 20th & 24th to 45th Floors.
+
+
+
+2. In Chapter 8, page 343, Figure 8-16, note, text changed as follows:
+
+ Based on erection drawing of Floors 12/13 (Frankel Steel 1985)
+ Based on structural drawing of Floors 8 to 20 and 24 to 45(Cantor 1985)
+
+
+
+
+                               June 2012 Text Changes to the NIST Reports of the
+                   Federal Building and Fire Investigation of the World Trade Center Disaster,
+                                               NIST NCSTAR 1-9
+
+NIST has made the following changes to the report on the collapse of World Trade Center Building 7:
+
+1. In Chapter 11, page 482, Analytical Model for Seated Connection at Columns 79 and 81
+
+The fourth sentence in the 3rd paragraph should be modified as follows:
+
+ The travel distance for walk off was 6.25 5.5 in. along the axis of the beam and 5.5 6.25 in. lateral to the beam.
+
+
+The 5.5 in. dimension was the length of the girder bearing on the seat connection that had to slide off the seat
+axially to the girder. The 6.25 in. dimension accounted for the length from the flange tip to the far side of the web,
+so that the web was no longer supported on the bearing plate. This change corrects a typographical error which
+showed a lateral displacement of 5.5 in. instead of the correct value of 6.25 in., which was used in the analyses.
+
+2. In Chapter 11, page 527, Thermal Effects on Connections for Floor Beams and Girders
+
+The third and fourth sentences in the 3rd paragraph should be modified as follows:
+
+ The bearing seat at Column 79 was 11 12 in. wide. Thus, when the girder end at Column 79 had been pushed laterally
+ at least 5.5 6.25 in., it was no longer supported by the bearing seat.
+
+
+The 16-story model of WTC 7 used a 12 in. bearing plate on the north side of Column 79, consistent with Frankel
+drawing 1091. The 5.5 in. dimension was incorrectly cited, as the 6.25 in. dimension accounted for the lateral
+walk-off distance. These changes correct typographical errors. The dimensions and lateral displacements used
+in the analyses were correct.
+
+
+
+http://www.nist.gov/el/disasterstudies/wtc/wtc_finalreports.cfm                                    last update 6/27/12
+

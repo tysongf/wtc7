@@ -33,8 +33,8 @@ See `docs/phase1_gate.md` and `docs/writeup.md`.
 | `tests/` | Verification tests (material tables, free and restrained expansion, buckling, contact, bolt failure) |
 | `results/phase1/` | Hand-calculation sheet, run outputs, summary tables and plots |
 | `data/nist/` | Appendix E stress-strain tables extracted from NCSTAR 1-9 |
-| `sources/` | Checksums and the AISC W-shape table; NIST PDFs are downloaded by `scripts/fetch_sources.sh` |
-| `sources/drawings/` | Readings of the Frankel and Cantor drawings (`READING.md`), their sources and checksums (`SOURCES.md`), crops; scans downloaded by `scripts/fetch_drawings.sh` |
+| `sources/` | Archived copies of every downloaded source (NIST reports, errata, FAQ page, drawing scans), checksums (`SHA256SUMS`), extracted text and figures; see `sources/README.md` |
+| `sources/drawings/` | Readings of the Frankel and Cantor drawings (`READING.md`), their sources and checksums (`SOURCES.md`), crops, and the scans themselves (`raw/`) |
 
 ## Software
 
@@ -42,14 +42,14 @@ Python 3.11, numpy 2.4.6, scipy 1.17.1, matplotlib 3.11.2, pytest (versions in
 `requirements.txt`). The plan-view solver is in `wtc7/fe2d.py`. The explicit shell solver's C kernel
 (`wtc7/xfe/kernel.c`) is compiled on first use with gcc and OpenMP. No commercial code is needed.
 - `pdftotext` (poppler-utils) is needed only to re-extract the NIST tables.
-- CalculiX 2.20 (`scripts/get_calculix.sh`, unpacked under `tools/`) is needed only for the buckling
+- CalculiX 2.20 (Debian packages archived in `tools/debs/`, unpacked by `scripts/get_calculix.sh`) is needed only for the buckling
   cross-check in `phase1/verify_xfe.py`.
 
 ## Run order
 
 ```bash
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
-scripts/fetch_sources.sh                      # NIST PDFs, checksums, text extraction
+scripts/fetch_sources.sh                      # checks the archived sources, extracts text
 .venv/bin/python scripts/extract_nist_tables.py
 .venv/bin/python scripts/make_assumptions_table.py
 .venv/bin/python -m pytest -q tests           # verification; must pass before any run is used
@@ -58,7 +58,7 @@ scripts/fetch_sources.sh                      # NIST PDFs, checksums, text extra
 .venv/bin/python phase1/run_phase1.py --set followup --jobs 4  # 36 follow-up runs (about 6 core-hours in all)
 .venv/bin/python phase1/summarize.py          # results/phase1/summary.md and plots
 # drawings geometry (screening re-run)
-scripts/fetch_drawings.sh                     # drawing scans used for A90 to A99
+scripts/fetch_drawings.sh                     # checks the archived drawing scans used for A90 to A99
 .venv/bin/python phase1/run_phase1.py --set drawings --jobs 4      # 12 screening runs, results/phase1/runs_drawings/
 .venv/bin/python phase1/summarize_drawings.py # results/phase1/summary_drawings.md
 # detailed shell model (preregistration Section 9)

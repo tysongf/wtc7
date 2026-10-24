@@ -8,10 +8,10 @@ on wrong geometry; Section 2 explains what changed.
 
 **Sources.**
 - NIST NCSTAR 1-9, 1-9A, 1A and 1-3D, the 2009 and 2012 errata, and the WTC 7 FAQ
-  (`scripts/fetch_sources.sh`).
+  All downloaded sources are archived in the repository with checksums (`sources/README.md`).
 - Since revision 1: the Frankel shop and erection drawings and the Cantor structural drawings for the
   girder, column 79, column 44 and floors 12 and 13. These are NIST FOIA releases mirrored on
-  archive.org (`sources/drawings/`, re-downloaded and checksummed by `scripts/fetch_drawings.sh`).
+  archive.org (`sources/drawings/`, with the scans in `raw/`).
 - The girder's own piece drawing (Frankel 2001) was not in the release and is still missing.
 
 **Pre-registration.** Outcome classes, events, checks and every sweep range were hashed before the

@@ -106,8 +106,8 @@ E12/13 and S-8 rev H show no stud count on girder A2001 (2026-10-23); S-8-10 (fl
 pattern (A40, A41; S1).
 
 **Q17. Drawings S-8, S-8-10, E10/11, E12/13 and Frankel shop drawings.** *Obtained 2026-10-23*
-from NIST FOIA releases mirrored on archive.org (`sources/drawings/SOURCES.md`; re-download with
-`scripts/fetch_drawings.sh`). Still missing: the girder A2001 piece drawing (Frankel 2001; the 2000
+from NIST FOIA releases mirrored on archive.org (`sources/drawings/SOURCES.md`; the scans are archived in
+`sources/drawings/raw/`). Still missing: the girder A2001 piece drawing (Frankel 2001; the 2000
 series was not in the FOIA 12-009 release), so the girder's length, its column 44 end and its hole
 layout are not drawn anywhere in hand; the girder end at column 44 is set from the column 44 geometry
 with an assumed 0.5 in. clearance (A96).

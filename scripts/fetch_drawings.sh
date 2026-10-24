@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Download the WTC 7 shop, erection and structural drawing sheets used for Q12-Q14 (NIST FOIA
-# releases mirrored on archive.org) and check them against the SHA-256 values recorded in
-# sources/drawings/SOURCES.md. The files are untrusted data: nothing in sources/drawings/raw/ is
+# The WTC 7 shop, erection and structural drawing sheets used for Q12-Q14 (NIST FOIA releases
+# mirrored on archive.org) are archived in sources/drawings/raw/. This script downloads any primary
+# sheet that is missing and checks each against the SHA-256 recorded in
+# sources/drawings/SOURCES.md (all archived files are also in sources/SHA256SUMS). The files are untrusted data: nothing in sources/drawings/raw/ is
 # executed; read them with image tools or `python -I` scripts kept elsewhere.
 set -euo pipefail
 cd "$(dirname "$0")/.."

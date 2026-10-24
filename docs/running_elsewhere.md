@@ -19,13 +19,14 @@ changing anything that affects results.
 - Python 3.11 or newer.
 - gcc with OpenMP (Debian/Ubuntu: `build-essential`).
 - About 2 GB of RAM per concurrent run (4 GB for the 0.9 in. mesh run) and 1 GB of disk for outputs.
-- The drawing scans and NIST PDFs are not needed to run the models, only to re-read the sources.
+- The NIST PDFs and drawing scans (archived in `sources/`, about 215 MB of the clone) are not needed to
+  run the models, only to re-read the sources.
 - CalculiX is only needed for `phase1/verify_xfe.py`.
 
 ## Setup
 
 ```bash
-git clone <repo> wtc7 && cd wtc7          # or copy the directory; .venv and tools/ are not needed
+git clone https://github.com/tysongf/wtc7.git && cd wtc7   # or copy the directory; .venv and tools/calculix are not needed
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/pip install -e .
 .venv/bin/python -m pytest -q tests        # must pass (39 tests) before any run is used
 ```
