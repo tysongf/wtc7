@@ -25,6 +25,8 @@ See `docs/phase1_gate.md` and `docs/writeup.md`.
 | `docs/open_questions.md` | What the public documents do not settle |
 | `docs/compute_log.md` | Hardware, solver settings, run times |
 | `docs/phase1_gate.md` | Phase 1 gate note |
+| `docs/running_elsewhere.md` | Moving the detailed-model runs to another machine |
+| `reports/forensic/` | Forensic report web page (built by `scripts/build_report.py`) |
 | `docs/writeup.md` | Short write-up |
 | `wtc7/` | Library: materials (NIST Appendix E rebuilt, EN 1993-1-2), sections, assumptions, geometry sets, plan-view solver (`fe2d.py`), explicit shell solver (`xfe/`) |
 | `phase1/` | Hand calculations, beam-element model, shell model, run, verification and summary scripts |

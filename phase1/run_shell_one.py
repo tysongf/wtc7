@@ -35,7 +35,9 @@ def main(argv):
     t0 = time.time()
     res, mon = simulate(cfg, verbose=True)
     res["wall_s"] = time.time() - t0
-    res["host"] = dict(python=platform.python_version(), machine=platform.machine(), threads=cfg.threads)
+    cpu = next((l.split(":", 1)[1].strip() for l in open("/proc/cpuinfo") if l.startswith("model name")), "")
+    res["host"] = dict(python=platform.python_version(), machine=platform.machine(), cpu=cpu,
+                       logical_cpus=os.cpu_count(), threads=cfg.threads)
     OUT.mkdir(parents=True, exist_ok=True)
     (OUT / f"{name}.json").write_text(json.dumps(res, default=float))
     if mon.snaps:

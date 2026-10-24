@@ -70,7 +70,10 @@ P2 = {
                        fy_scale=1.1, end79=0.4, gap44_lat=3.0, bolt_slip_fail=0.15, stud_slip_fail=0.10,
                        mu_slab=0.6, peak=700.0),
 }
-SETS = {"p1": P1, "p2": P2, "all": {**P1, **P2}}
+# Mesh check follow-up (preregistration Section 9.4): the 3.6/1.8 in. pair missed the 2 % criterion on
+# the column 79 lateral movement, so the baseline is rerun at 0.9 in.
+MESH = {"check_mesh_fine": dict(mesh=0.9)}
+SETS = {"p1": P1, "p2": P2, "mesh": MESH, "all": {**P1, **MESH, **P2}}
 
 
 def launch(name, kw, threads):

@@ -80,3 +80,11 @@ which is reported for each run. Mass-proportional damping 1.26 /s. Penalty conta
 
 Gravity-only pilots (no heating) were run on the coarse mesh to check the load path. They are
 not results. The first pilots found the exterior-seat clamping that led to A99.
+
+### 2026-10-24: detailed runs moved to a faster machine
+
+The full-mesh baseline took 14.7 h on the laptop (four cores, two runs at a time, sustained-load clock
+throttling), against about 2.5 h predicted from a short timing pilot. At that rate the preregistered set
+would take about two weeks, so the remaining runs move to a faster machine (`docs/running_elsewhere.md`).
+No run setting changes. Each run's JSON records its CPU and thread count. Completed on the laptop:
+`check_mesh_coarse` (1.5 h) and `baseline` (14.7 h).
