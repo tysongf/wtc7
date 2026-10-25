@@ -41,7 +41,8 @@ P1 = {
     "check_rate_half": dict(rate=0.5),
     "A97_stiffeners": dict(stiffeners="drawn"),
 }
-# Priority 2: the remaining preregistered one-at-a-time sweeps and the combined run.
+# Priority 2: the remaining preregistered one-at-a-time sweeps and the combined run, at half rate
+# (change log 2026-10-25: they are compared against the reported, half-rate, baseline).
 P2 = {
     "S4_mu0.45": dict(mu_seat=0.45),
     "S4_mu0.6": dict(mu_seat=0.6),
@@ -70,10 +71,17 @@ P2 = {
                        fy_scale=1.1, end79=0.4, gap44_lat=3.0, bolt_slip_fail=0.15, stud_slip_fail=0.10,
                        mu_slab=0.6, peak=700.0),
 }
-# Mesh check follow-up (preregistration Section 9.4): the 3.6/1.8 in. pair missed the 2 % criterion on
-# the column 79 lateral movement, so the baseline is rerun at 0.9 in.
-MESH = {"check_mesh_fine": dict(mesh=0.9)}
-SETS = {"p1": P1, "p2": P2, "mesh": MESH, "all": {**P1, **MESH, **P2}}
+# Rate check follow-up (Section 9.4): half rate moved E3 of the baseline by more than 10 C, so every
+# priority-1 run is repeated at half rate and those become the reported results. check_rate_half is
+# the baseline at half rate and is not repeated. Change log 2026-10-25: a quarter-rate baseline is
+# added as a diagnostic (reported, replaces nothing).
+P1_HALF = {"check_rate_quarter": dict(rate=0.25)}
+P1_HALF.update({f"{n}_r0.5": dict(kw, rate=0.5) for n, kw in P1.items() if n not in ("baseline", "check_rate_half")})
+# Mesh check follow-up (Section 9.4): the 3.6/1.8 in. pair missed the 2 % criterion on the column 79
+# lateral movement, so the baseline is rerun at 0.9 in., at half rate (change log 2026-10-25).
+MESH = {"check_mesh_fine_r0.5": dict(mesh=0.9, rate=0.5)}
+P2 = {n: dict(kw, rate=0.5) for n, kw in P2.items()}
+SETS = {"p1": P1, "p1_half": P1_HALF, "p2": P2, "mesh": MESH, "all": {**P1, **P1_HALF, **MESH, **P2}}
 
 
 def launch(name, kw, threads):

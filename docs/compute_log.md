@@ -11,6 +11,8 @@ Hardware for all runs below unless stated: 8 logical CPUs (Intel(R) Core(TM) i5-
 | 2026-10-22T07:20Z | docs/preregistration.md (change log: A48 geometry correction; no criterion changed) | dc163303c816f19b3ac03a101259df556cf66b4eef56d69aa4fda7194e087486 |
 | 2026-10-22T09:25Z | docs/preregistration.md (change log: follow-up runs recorded; no criterion changed) | a5af34e3868ffa4f3ee0f95eabe9f5024f1ff30c360d38fc3da46c6f93d7f2bd |
 | 2026-10-23T09:29Z | docs/preregistration.md (Section 9 added: detailed model; before any thermal run of it) | e82ed1730ab327835debb6ad36bbd919f8d049bf07369b66b9bf4ed3f0a74a88 |
+| 2026-10-25T20:54Z | docs/preregistration.md (change log: Section 9.4 rate rule applied; 0.9 in. mesh run at half rate; quarter-rate diagnostic added; before any of those runs) | 68ced1e6022e3fe03aa7437fc56970bf2e0849cd49b4227a1665770351bad7e4 |
+| 2026-10-25T20:57Z | docs/preregistration.md (change log: priority 2 at half rate; before any priority-2 run) | 00615045e1c4c5acf9cd32d1f4bfcd7341b08849d567124bdf95640401338e0c |
 
 No finite-element run had been made when the first two hashes were recorded. The third was recorded after the first (superseded) baseline run and the fourth after all reported runs; each adds a change-log entry only.
 

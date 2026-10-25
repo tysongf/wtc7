@@ -58,14 +58,18 @@ Leave a core or two free. Delete the `timing_test` outputs afterwards.
 ## Run order
 
 ```bash
-.venv/bin/python phase1/run_shell.py --set p1   --jobs 8 --threads 2 --skip-done
-.venv/bin/python phase1/run_shell.py --set mesh --jobs 1 --threads 8 --skip-done   # 0.9 in. baseline, Section 9.4
-.venv/bin/python phase1/run_shell.py --set p2   --jobs 8 --threads 2 --skip-done
+.venv/bin/python phase1/run_shell.py --set p1      --jobs 8 --threads 2 --skip-done   # full rate (done on the laptop)
+.venv/bin/python phase1/run_shell.py --set p1_half --jobs 8 --threads 2 --skip-done   # reported results, Section 9.4
+.venv/bin/python phase1/run_shell.py --set mesh    --jobs 1 --threads 8 --skip-done   # 0.9 in. baseline at half rate
+.venv/bin/python phase1/run_shell.py --set p2      --jobs 8 --threads 2 --skip-done
 .venv/bin/python phase1/summarize_shell.py
 .venv/bin/python scripts/build_report.py
 ```
 
-The 0.9 in. run is the longest, at about 8 times a 1.8 in. run. Start it early, beside the
+The full-rate priority-1 set failed the Section 9.4 rate check (change log 2026-10-25), so `p1_half`
+repeats it at half rate, plus a quarter-rate diagnostic baseline; a half-rate run is about 1.4 times
+a full-rate one, the quarter-rate run about 2.1 times. The 0.9 in. run is the longest, at about 11
+times a full-rate 1.8 in. run. Start it early, beside the
 priority-1 set, if the machine has room. `--skip-done` skips any run whose JSON already exists,
 so the queue can be stopped and restarted. A run that was interrupted leaves only a log and is
 rerun from the start.

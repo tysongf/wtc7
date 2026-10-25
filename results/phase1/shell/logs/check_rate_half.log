@@ -1,0 +1,61 @@
+t=0.002 Tb=  20.0 lat79=-0.000 ax79=-0.000 dz79=-0.000 tw=+0.00 bow=-0.00 bdefl=0.00 studs=0 F79=0 KE/IE=0.015
+t=0.102 Tb=  20.0 lat79=-0.000 ax79=-0.001 dz79=+0.000 tw=-0.00 bow=+0.00 bdefl=0.00 studs=0 F79=0 KE/IE=3.355
+t=0.202 Tb=  20.0 lat79=-0.000 ax79=-0.011 dz79=+0.002 tw=-0.01 bow=+0.01 bdefl=0.02 studs=0 F79=0 KE/IE=0.577
+t=0.302 Tb=  20.0 lat79=-0.001 ax79=-0.028 dz79=+0.005 tw=-0.03 bow=+0.03 bdefl=0.04 studs=0 F79=0 KE/IE=0.115
+t=0.402 Tb=  20.0 lat79=-0.002 ax79=-0.035 dz79=+0.008 tw=-0.05 bow=+0.03 bdefl=0.06 studs=0 F79=0 KE/IE=0.063
+t=0.502 Tb=  20.0 lat79=-0.004 ax79=-0.039 dz79=+0.011 tw=-0.02 bow=+0.05 bdefl=0.08 studs=0 F79=0 KE/IE=0.087
+t=0.602 Tb=  20.0 lat79=-0.008 ax79=-0.047 dz79=+0.014 tw=-0.01 bow=+0.05 bdefl=0.11 studs=0 F79=0 KE/IE=0.072
+t=0.702 Tb=  20.0 lat79=-0.010 ax79=-0.054 dz79=+0.016 tw=-0.01 bow=+0.05 bdefl=0.13 studs=0 F79=0 KE/IE=0.029
+t=0.802 Tb=  20.0 lat79=-0.012 ax79=-0.060 dz79=+0.018 tw=-0.00 bow=+0.06 bdefl=0.15 studs=0 F79=0 KE/IE=0.011
+t=0.902 Tb=  20.0 lat79=-0.011 ax79=-0.067 dz79=+0.020 tw=-0.00 bow=+0.06 bdefl=0.17 studs=0 F79=0 KE/IE=0.005
+t=1.002 Tb=  20.0 lat79=-0.010 ax79=-0.068 dz79=+0.020 tw=-0.00 bow=+0.06 bdefl=0.17 studs=0 F79=0 KE/IE=0.003
+t=1.101 Tb=  20.3 lat79=-0.011 ax79=-0.068 dz79=+0.020 tw=-0.00 bow=+0.06 bdefl=0.17 studs=0 F79=0 KE/IE=0.002
+t=1.201 Tb=  39.6 lat79=-0.009 ax79=-0.107 dz79=+0.017 tw=+0.02 bow=+0.13 bdefl=0.14 studs=0 F79=0 KE/IE=0.011
+t=1.301 Tb=  58.9 lat79=-0.009 ax79=-0.153 dz79=+0.015 tw=+0.04 bow=+0.19 bdefl=0.13 studs=0 F79=0 KE/IE=0.005
+t=1.401 Tb=  78.2 lat79=-0.009 ax79=-0.188 dz79=+0.013 tw=+0.04 bow=+0.31 bdefl=0.11 studs=0 F79=0 KE/IE=0.005
+t=1.501 Tb=  97.5 lat79=-0.009 ax79=-0.242 dz79=+0.014 tw=+0.03 bow=+0.43 bdefl=0.14 studs=0 F79=0 KE/IE=0.047
+  EVENT first_stud at t=1.519 s, T_beam=100.9
+t=1.601 Tb= 116.9 lat79=-0.010 ax79=-0.227 dz79=+0.023 tw=+0.07 bow=+0.52 bdefl=0.19 studs=5 F79=0 KE/IE=0.008
+  EVENT E3_g44_all_bolts at t=1.683 s, T_beam=132.8
+t=1.701 Tb= 136.2 lat79=-0.010 ax79=-0.238 dz79=+0.014 tw=+0.07 bow=+0.65 bdefl=0.26 studs=25 F79=0 KE/IE=0.015
+  EVENT g79_seat_bolts at t=1.758 s, T_beam=147.3
+  EVENT E1_g79_all_bolts at t=1.793 s, T_beam=154.0
+t=1.801 Tb= 155.5 lat79=+0.291 ax79=-0.477 dz79=+0.028 tw=+0.62 bow=+0.84 bdefl=0.20 studs=70 F79=0 KE/IE=0.020
+t=1.901 Tb= 174.8 lat79=+0.434 ax79=-0.616 dz79=+0.028 tw=+0.53 bow=+0.96 bdefl=0.19 studs=87 F79=0 KE/IE=0.013
+t=2.001 Tb= 194.1 lat79=+0.542 ax79=-0.734 dz79=+0.027 tw=+0.64 bow=+1.16 bdefl=0.23 studs=96 F79=0 KE/IE=0.007
+t=2.101 Tb= 213.4 lat79=+0.667 ax79=-0.863 dz79=+0.029 tw=+0.68 bow=+1.30 bdefl=0.26 studs=102 F79=0 KE/IE=0.004
+t=2.200 Tb= 232.8 lat79=+0.801 ax79=-0.989 dz79=+0.030 tw=+0.70 bow=+1.46 bdefl=0.34 studs=107 F79=0 KE/IE=0.004
+t=2.300 Tb= 252.1 lat79=+0.948 ax79=-1.118 dz79=+0.032 tw=+0.70 bow=+1.61 bdefl=0.38 studs=109 F79=0 KE/IE=0.003
+t=2.400 Tb= 271.4 lat79=+1.086 ax79=-1.245 dz79=+0.034 tw=+0.71 bow=+1.77 bdefl=0.42 studs=112 F79=0 KE/IE=0.002
+t=2.500 Tb= 290.7 lat79=+1.226 ax79=-1.366 dz79=+0.034 tw=+0.72 bow=+1.93 bdefl=0.48 studs=114 F79=0 KE/IE=0.002
+t=2.600 Tb= 310.0 lat79=+1.374 ax79=-1.491 dz79=+0.035 tw=+0.73 bow=+2.09 bdefl=0.53 studs=116 F79=0 KE/IE=0.002
+t=2.700 Tb= 329.3 lat79=+1.415 ax79=-1.573 dz79=+0.031 tw=+0.92 bow=+2.25 bdefl=0.56 studs=117 F79=32 KE/IE=0.002
+t=2.800 Tb= 348.6 lat79=+1.432 ax79=-1.652 dz79=+0.028 tw=+1.12 bow=+2.41 bdefl=0.58 studs=117 F79=74 KE/IE=0.001
+t=2.900 Tb= 368.0 lat79=+1.443 ax79=-1.717 dz79=+0.028 tw=+1.12 bow=+2.59 bdefl=0.60 studs=120 F79=148 KE/IE=0.002
+t=3.000 Tb= 387.3 lat79=+1.453 ax79=-1.763 dz79=+0.026 tw=+1.13 bow=+2.76 bdefl=0.60 studs=121 F79=196 KE/IE=0.001
+t=3.100 Tb= 406.6 lat79=+1.462 ax79=-1.811 dz79=+0.023 tw=+1.14 bow=+2.91 bdefl=0.60 studs=121 F79=228 KE/IE=0.002
+t=3.199 Tb= 425.9 lat79=+1.464 ax79=-1.840 dz79=+0.020 tw=+1.15 bow=+3.08 bdefl=0.60 studs=121 F79=272 KE/IE=0.001
+t=3.299 Tb= 445.2 lat79=+1.465 ax79=-1.865 dz79=+0.017 tw=+1.16 bow=+3.26 bdefl=0.58 studs=122 F79=306 KE/IE=0.001
+t=3.399 Tb= 464.5 lat79=+1.467 ax79=-1.891 dz79=+0.015 tw=+1.16 bow=+3.42 bdefl=0.59 studs=123 F79=336 KE/IE=0.001
+t=3.499 Tb= 483.8 lat79=+1.467 ax79=-1.897 dz79=+0.014 tw=+1.17 bow=+3.57 bdefl=0.61 studs=124 F79=364 KE/IE=0.001
+t=3.599 Tb= 503.2 lat79=+1.467 ax79=-1.900 dz79=+0.014 tw=+1.34 bow=+3.43 bdefl=1.29 studs=125 F79=377 KE/IE=0.002
+t=3.699 Tb= 522.5 lat79=+1.467 ax79=-1.902 dz79=+0.013 tw=+1.60 bow=+3.61 bdefl=1.36 studs=126 F79=398 KE/IE=0.001
+t=3.799 Tb= 541.8 lat79=+1.467 ax79=-1.905 dz79=+0.013 tw=+1.84 bow=+3.79 bdefl=1.39 studs=126 F79=419 KE/IE=0.001
+t=3.899 Tb= 561.1 lat79=+1.467 ax79=-1.906 dz79=+0.013 tw=+2.09 bow=+3.96 bdefl=1.40 studs=126 F79=435 KE/IE=0.000
+t=3.999 Tb= 580.4 lat79=+1.467 ax79=-1.907 dz79=+0.013 tw=+2.34 bow=+4.13 bdefl=1.42 studs=126 F79=450 KE/IE=0.000
+  EVENT first_fin_bolt at t=4.086 s, T_beam=597.3
+t=4.099 Tb= 599.7 lat79=+1.468 ax79=-1.907 dz79=+0.013 tw=+2.57 bow=+4.27 bdefl=1.43 studs=126 F79=470 KE/IE=0.002
+t=4.199 Tb= 600.0 lat79=+1.468 ax79=-1.906 dz79=+0.013 tw=+2.57 bow=+4.29 bdefl=2.57 studs=126 F79=449 KE/IE=0.041
+t=4.298 Tb= 600.0 lat79=+1.467 ax79=-1.906 dz79=+0.013 tw=+2.57 bow=+4.30 bdefl=2.46 studs=129 F79=436 KE/IE=0.045
+t=4.398 Tb= 600.0 lat79=+1.467 ax79=-1.906 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=3.23 studs=130 F79=434 KE/IE=0.017
+t=4.498 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=2.53 studs=131 F79=440 KE/IE=0.007
+t=4.598 Tb= 600.0 lat79=+1.467 ax79=-1.906 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.47 studs=131 F79=443 KE/IE=0.004
+t=4.698 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.47 studs=131 F79=439 KE/IE=0.001
+t=4.798 Tb= 600.0 lat79=+1.467 ax79=-1.906 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.48 studs=131 F79=442 KE/IE=0.001
+t=4.898 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.48 studs=131 F79=439 KE/IE=0.001
+t=4.998 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.93 studs=131 F79=441 KE/IE=0.001
+t=5.098 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.97 studs=131 F79=440 KE/IE=0.000
+t=5.198 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.31 bdefl=1.47 studs=131 F79=440 KE/IE=0.001
+t=5.298 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.47 studs=131 F79=440 KE/IE=0.000
+t=5.397 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.47 studs=131 F79=439 KE/IE=0.000
+t=5.497 Tb= 600.0 lat79=+1.467 ax79=-1.907 dz79=+0.014 tw=+2.57 bow=+4.32 bdefl=1.46 studs=131 F79=440 KE/IE=0.000
