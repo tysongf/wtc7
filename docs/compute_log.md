@@ -83,10 +83,30 @@ which is reported for each run. Mass-proportional damping 1.26 /s. Penalty conta
 Gravity-only pilots (no heating) were run on the coarse mesh to check the load path. They are
 not results. The first pilots found the exterior-seat clamping that led to A99.
 
-### 2026-10-24: detailed runs moved to a faster machine
+### 2026-10-24: wall times and where the runs were made
 
-The full-mesh baseline took 14.7 h on the laptop (four cores, two runs at a time, sustained-load clock
-throttling), against about 2.5 h predicted from a short timing pilot. At that rate the preregistered set
-would take about two weeks, so the remaining runs move to a faster machine (`docs/running_elsewhere.md`).
-No run setting changes. Each run's JSON records its CPU and thread count. Completed on the laptop:
-`check_mesh_coarse` (1.5 h) and `baseline` (14.7 h).
+The full-mesh baseline took 14.7 h of wall time on the laptop (four cores, two runs at a time),
+against about 2.5 h predicted from a short timing pilot. The cause was not the CPU: the laptop was
+suspending (37 suspends since boot by 2026-10-25), and the run's process had about 15 % of the wall
+time on the CPU. Suspend was disabled at about 2026-10-25T02:50Z; after that a full-rate 1.8 in. run
+took 2.9 to 3.1 h with two threads (about 13.4 ms per cycle). The plan to move the runs to a faster
+machine (`docs/running_elsewhere.md`) was dropped on 2026-10-25, and all runs are made on the laptop.
+Wall times recorded before that (`wall_s` in the run JSONs of baseline, mu0, mu0.1, mu0.2 and mu0.22)
+include sleep. The suspend count reached 40 by 2026-10-26T22:00Z, so a few later runs include short
+sleeps as well (the half-rate runs took 3.7 to 4.7 h). No result depends on wall time.
+
+### 2026-10-25 to 2026-10-27: rate check, half-rate set and the 0.9 in. mesh
+
+- The full-rate priority-1 set (17 runs) was completed on 2026-10-25. The half-rate baseline moved
+  T_E3 by 411 C, so the Section 9.4 rule applies (change log and hashes above). The half-rate set
+  (`--set p1_half`, 15 runs and a quarter-rate baseline) ran from 2026-10-25T21:00Z to
+  2026-10-27T07:12Z.
+- The 0.9 in. half-rate mesh run (`check_mesh_fine_r0.5`) first diverged after 30 cycles. The cause was
+  a mesh-generation fault, not the solver. Each beam's skewed end cut (flange-tip offset up to 1.04 in.)
+  was tapered over the first station interval only; at 0.9 in. that interval is shorter than the offset,
+  so the corner elements at the flange tips folded nearly flat (smallest edge 0.057 in., characteristic
+  length 0.003 in.). The taper now runs to the first station at least 1.5 times the offset
+  (`phase1/shell_model.py`). The 1.8 and 3.6 in. meshes are unchanged: their node coordinates and
+  connectivity hash the same before and after the change. At 0.9 in. the smallest edge is now 0.387 in.,
+  and 2,000 cycles step stably. The diverged attempt is kept in `results/phase1/shell/superseded/`, and
+  the run was restarted on 2026-10-27, beside the priority-2 queue.

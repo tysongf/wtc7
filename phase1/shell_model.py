@@ -158,8 +158,10 @@ class Floor:
             mem = mesh.wshape(m, sec, [xg + c0, yb, 0.0], [1, 0, 0], EZ, s_b_st, nfb, size, "A572", 1, f"beam{b}",
                               top_z=-sec.tf / 2, sweep=lambda x, L=Lb, a=imp: a * math.sin(math.pi * x / L),
                               cope_top=cope)
-            # end cut parallel to the girder web (beam sheets 3004, 3005: 3 9/16 in 12)
-            taper = s_b_st[1]
+            # end cut parallel to the girder web (beam sheets 3004, 3005: 3 9/16 in 12), tapered out over
+            # the first stations reaching 1.5 x the flange-tip offset, so no element at the cut folds over
+            # (one station at the 1.8 and 3.6 in. meshes, two at 0.9 in.)
+            taper = s_b_st[np.searchsorted(s_b_st, 1.5 * sec.bf / 2 * math.tan(th))]
             for key in ("web", "bot", "top"):
                 grid = mem["grids"][key]
                 for i, sv in enumerate(s_b_st):
