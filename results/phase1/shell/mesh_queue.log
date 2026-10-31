@@ -1,1 +1,2 @@
 [2026-10-27T07:13Z] [      3 s] check_mesh_fine_r0.5: diverged in 2 s, 30 cycles, events (beam C): {}
+[2026-10-30T22:32Z] [ 140259 s] check_mesh_fine_r0.5: complete in 140255 s, 2140412 cycles, events (beam C): {'first_stud': 100.3, 'E3_g44_all_bolts': 132.6, 'g79_seat_bolts': 152.5, 'E1_g79_all_bolts': 160.2, 'first_fin_bolt': 596.2}
