@@ -88,8 +88,20 @@ FOLLOW = {
     "favourable_s6": dict(P2["favourable"], slot=-1.0, gap44_lat=-1.0, bolt_slip_fail=0.25, mu_seat=0.1),
     "favourable_dump": dict(P2["favourable"], dump_after=4.9),
 }
-SETS = {"p1": P1, "p1_half": P1_HALF, "p2": P2, "mesh": MESH, "follow": FOLLOW,
-        "all": {**P1, **P1_HALF, **MESH, **P2, **FOLLOW}}
+# NIST replica (gate item 5, change log 2026-10-31): NIST's idealizations at column 79 on the drawn framing.
+# The restore runs are made only if the replica walks off; each changes one thing back to the drawings
+# (the side plates only with the drawn face, because at 14.6 deg they cut through the girder end).
+NIST = {"nist_replica": dict(face79=14.6, gap79=0.5, side_plates="clear", mu_seat=0.0, slot=0.125, peak=700.0,
+                             rate=0.5)}
+NIST_RESTORE = {
+    "nist_face_drawn": dict(NIST["nist_replica"], face79=-1.0, gap79=-1.0),
+    "nist_mu0.3": dict(NIST["nist_replica"], mu_seat=0.3),
+    "nist_holes": dict(NIST["nist_replica"], slot=-1.0),
+    "nist_face_plates": dict(NIST["nist_replica"], face79=-1.0, gap79=-1.0, side_plates="drawn"),
+}
+SETS = {"p1": P1, "p1_half": P1_HALF, "p2": P2, "mesh": MESH, "follow": FOLLOW, "nist": NIST,
+        "nist_restore": NIST_RESTORE,
+        "all": {**P1, **P1_HALF, **MESH, **P2, **FOLLOW, **NIST, **NIST_RESTORE}}
 
 
 def launch(name, kw, threads):

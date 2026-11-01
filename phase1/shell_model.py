@@ -48,13 +48,14 @@ class Config:
     history: str = "monotonic"                 # S8
     steel: str = "NIST"                        # S9
     fy_scale: float = 1.0                      # S10
-    gap79: float = -1.0                        # (plan model only)
+    gap79: float = -1.0                        # detailed: >= 0 moves col 79 along the girder to this end clearance (A26)
     end79: float = 0.0                         # S11 (detailed): shift of col 79 along the girder, + = away
     gap44_lat: float = -1.0                    # S12; -1 = from the drawings (A96)
     bolt_slip_fail: float = asm.value("A31")   # S13
     stud_slip_fail: float = asm.value("A32")   # S14
     mu_slab: float = asm.value("A43")          # S15
     bearing: str = "grid"                      # "grid" = faces as drawn (A93, A96); "square" = diagnostic
+    face79: float = -1.0                       # angle of the col 79 face normal to the girder, deg; -1 = drawn (A93)
     side_plates: str = "auto"                  # Q12: "auto"/"drawn" = as drawn (A94); "clear" = removed
     stiffeners: str = "omitted"                # A97: "omitted" (as NIST) or "drawn"
     geometry: str = "drawings"
@@ -301,7 +302,7 @@ class Floor:
     def _columns(self):
         """Column 79 and column 44 frames (A93 to A96)."""
         cfg = self.cfg
-        rho = math.radians(asm.value("A93")["rotation"])
+        rho = math.radians(asm.value("A93")["rotation"] if cfg.face79 < 0 else self.G0["skew"] - cfg.face79)
         self.Np = np.array([math.sin(rho), math.cos(rho), 0.0])      # col 79 axis toward its north face
         self.Ep = np.array([math.cos(rho), -math.sin(rho), 0.0])     # col 79 transverse axis, east
         end79 = asm.value("A91")["end79"] + cfg.end79
@@ -310,6 +311,12 @@ class Floor:
         self.C44 = (span - asm.value("A91")["end79"]) * self.eg     # col 44 centre (on the girder line)
         if cfg.bearing == "square":
             self.Np, self.Ep = self.eg.copy(), self.ng.copy()
+        if cfg.gap79 >= 0:
+            # col 79 moved along the girder until the nearest girder end node is gap79 from its face
+            G, m = self.G, self.m
+            end = np.unique(np.concatenate([G["grids"]["web"][0], G["grids"]["bot"][0], G["grids"]["top"][0]]))
+            gap = ((m.x0[end] - self.C79) @ self.Np).min() - asm.value("A94")["half_depth"]
+            self.C79 = self.C79 - (cfg.gap79 - gap) / (self.eg @ self.Np) * self.eg
 
     # ------------------------------------------------------------------ contact
     def _contacts(self):

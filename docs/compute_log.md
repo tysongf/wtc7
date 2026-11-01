@@ -14,8 +14,9 @@ Hardware for all runs below unless stated: 8 logical CPUs (Intel(R) Core(TM) i5-
 | 2026-10-25T20:54Z | docs/preregistration.md (change log: Section 9.4 rate rule applied; 0.9 in. mesh run at half rate; quarter-rate diagnostic added; before any of those runs) | 68ced1e6022e3fe03aa7437fc56970bf2e0849cd49b4227a1665770351bad7e4 |
 | 2026-10-25T20:57Z | docs/preregistration.md (change log: priority 2 at half rate; before any priority-2 run) | 00615045e1c4c5acf9cd32d1f4bfcd7341b08849d567124bdf95640401338e0c |
 | 2026-10-31T16:56Z | docs/preregistration.md (change log: Section 6 repeat of the combined run and the divergence diagnostic; before either run) | 597ca147847bb51f997327b8fa253f41dadd140c44985c4bdcfea0741d3b8bb5 |
+| 2026-11-01T06:52Z | docs/preregistration.md (change log: NIST-replica diagnostic for gate item 5; before any of its runs) | 9d4a8db1f39dba5abaefd55a4f5d9827d4de69bc68dbe6e67205a3774876004c |
 
-No finite-element run had been made when the first two hashes were recorded. The third was recorded after the first (superseded) baseline run and the fourth after all reported runs; each adds a change-log entry only. The fifth was recorded after all priority-2 runs and before the two follow-up runs it describes.
+No finite-element run had been made when the first two hashes were recorded. The third was recorded after the first (superseded) baseline run and the fourth after all reported runs; each adds a change-log entry only. The fifth was recorded after all priority-2 runs and before the two follow-up runs it describes; the sixth after those and before any NIST-replica run.
 
 ## Runs
 
