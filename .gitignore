@@ -7,3 +7,4 @@ wtc7/xfe/_kernel_*.so
 tools/calculix/
 # CalculiX scratch output from phase1/verify_xfe.py
 results/phase1/shell/ccx_work/
+results/phase1/shell/dumps/

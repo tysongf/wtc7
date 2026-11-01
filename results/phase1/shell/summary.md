@@ -61,6 +61,8 @@ the girder toward the column.
 | check_mesh_coarse_r0.5 | complete | no walk-off to 600 C | 144 | 551 | 508 | - | - | - | - | - | - | 1.21 | 1.88 | 0.470 | 9.1 % | 0.106 | 1.48 |
 | check_mesh_fine_r0.5 | complete | no walk-off to 600 C | 160 | 133 | 596 | - | - | - | - | - | - | 1.50 | 1.90 | 0.456 | 8.9 % | 0.216 | 38.96 |
 | check_rate_quarter | complete | no walk-off to 600 C | 154 | 131 | 596 | - | - | - | - | - | - | 1.47 | 1.91 | 0.469 | 5.9 % | 0.089 | 6.11 |
+| favourable_dump | stopped | walk-off (600-700 C) | 185 | 581 | 612 | 443 | 700 | 700 | 700 | 700 | 700 | 17.54 | 2.60 | 0.395 | 16.0 % | 0.051 | 4.63 |
+| favourable_s6 | complete | no walk-off to 700 C | 162 | 621 | 625 | 617 | - | - | - | - | 631 | 2.83 | 2.40 | 0.416 | 7.9 % | 0.035 | 4.83 |
 | mu0.1_r0.5 | complete | no walk-off to 600 C | 144 | 494 | - | - | - | - | - | - | - | 2.11 | 1.95 | 0.497 | 7.9 % | 0.068 | 4.05 |
 | mu0.22_r0.5 | complete | no walk-off to 600 C | 156 | 135 | - | - | - | - | - | - | - | 1.67 | 1.92 | 0.472 | 7.8 % | 0.082 | 4.44 |
 | mu0.24_r0.5 | complete | no walk-off to 600 C | 155 | 134 | - | - | - | - | - | - | - | 1.63 | 1.92 | 0.471 | 7.9 % | 0.082 | 4.22 |

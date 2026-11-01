@@ -81,7 +81,15 @@ P1_HALF.update({f"{n}_r0.5": dict(kw, rate=0.5) for n, kw in P1.items() if n not
 # lateral movement, so the baseline is rerun at 0.9 in., at half rate (change log 2026-10-25).
 MESH = {"check_mesh_fine_r0.5": dict(mesh=0.9, rate=0.5)}
 P2 = {n: dict(kw, rate=0.5) for n, kw in P2.items()}
-SETS = {"p1": P1, "p1_half": P1_HALF, "p2": P2, "mesh": MESH, "all": {**P1, **P1_HALF, **MESH, **P2}}
+# Section 6 follow-up (change log 2026-10-31): the combined run repeated with the values that moved the
+# girder end furthest sideways in the half-rate sweeps (differences of 0.05 in. or less keep the
+# preregistered end), and 'favourable' rerun unchanged with state dumps after 4.9 s to trace its divergence.
+FOLLOW = {
+    "favourable_s6": dict(P2["favourable"], slot=-1.0, gap44_lat=-1.0, bolt_slip_fail=0.25, mu_seat=0.1),
+    "favourable_dump": dict(P2["favourable"], dump_after=4.9),
+}
+SETS = {"p1": P1, "p1_half": P1_HALF, "p2": P2, "mesh": MESH, "follow": FOLLOW,
+        "all": {**P1, **P1_HALF, **MESH, **P2, **FOLLOW}}
 
 
 def launch(name, kw, threads):

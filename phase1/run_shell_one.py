@@ -44,6 +44,14 @@ def main(argv):
         np.savez_compressed(OUT / f"{name}.npz", t=np.array([s["t"] for s in mon.snaps]),
                             T_beam=np.array([s["T_beam"] for s in mon.snaps]),
                             x=np.stack([s["x"] for s in mon.snaps]))
+    if cfg.dump_after:
+        # diagnostic state dumps (Config.dump_after); kept out of git, see .gitignore
+        dumps = getattr(mon, "dumps", [])
+        states = dumps + [s for s in getattr(mon, "ring", []) if all(s is not d for d in dumps)]
+        dump_dir = OUT.parent / "dumps"
+        dump_dir.mkdir(parents=True, exist_ok=True)
+        np.savez_compressed(dump_dir / f"{name}.npz", **{f"{k}_{i:03d}": v for i, s in enumerate(states)
+                                                          for k, v in s.items()})
     ev = {k: round(v["T_beam"], 1) for k, v in res["events"].items()}
     print(f"{name}: {res['status']} in {res['wall_s']:.0f} s, {res['info']['cycles']} cycles, events (beam C): {ev}",
           flush=True)

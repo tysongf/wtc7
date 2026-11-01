@@ -67,6 +67,8 @@ class Config:
     t_hold: float = asm.value("A85")           # hold after the ramp (NIST: 2.6 s to 4.0 s)
     threads: int = 4
     t_end: float = 0.0                         # 0 = from the schedule
+    dump_after: float = 0.0                    # diagnostic: save full state from this time on (0 = off)
+    dump_every: float = 0.01
 
     def label(self):
         return self.name
@@ -640,6 +642,15 @@ class Monitor:
             self.last_bin = b
             self.snaps.append(dict(t=t, T_beam=Tb, x=m.x.astype(np.float32)))
             sp.last_broken = None
+        if cfg.dump_after and t >= cfg.dump_after:
+            # full state every dump_every s, plus the last four monitor calls, so a divergence can be traced
+            st = dict(t=t, x=m.x.astype(np.float32), v=m.v.astype(np.float32), w=m.w.astype(np.float32),
+                      sig=m.sig.astype(np.float32), epsp=m.epsp.astype(np.float32), hgs=m.hgs.astype(np.float32),
+                      broken=sp.broken.copy())
+            self.ring = (getattr(self, "ring", []) + [st])[-4:]
+            if t >= getattr(self, "next_dump", cfg.dump_after):
+                self.dumps = getattr(self, "dumps", []) + [st]
+                self.next_dump = t + cfg.dump_every
         if self.verbose and (len(self.rows) % 40 == 1):
             print(f"t={t:.3f} Tb={Tb:6.1f} lat79={lat79:+.3f} ax79={ax79:+.3f} dz79={dz79:+.3f} tw={twist:+.2f} "
                   f"bow={gbow:+.2f} bdefl={max(defl):.2f} studs={nstud} F79={np.linalg.norm(f79):.0f} "
