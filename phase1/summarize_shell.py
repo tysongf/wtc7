@@ -42,15 +42,17 @@ def t_or_dash(ev, key):
 
 
 def classify(r):
-    """Per-run reading of the preregistered rules: E1 <= 400 C and E2 (any of E2, E2r, E2s) <= 700 C."""
+    """Per-run reading of the preregistered rules: E1 <= 400 C and E2 (any of E2, E2r, E2s) <= 700 C.
+    A numerical stop makes a run INCOMPLETE only if it comes before E2 and before 700 C (Section 3)."""
     ev = r["events"]
-    if r["status"] == "diverged":
-        return "INCOMPLETE"
     e2 = first_e2(ev)
     peak = r["config"]["peak"]
+    note = ", then numerical stop" if r["status"] == "diverged" else ""
     if e2 is not None and e2[0] <= 700.0:
-        return "walk-off" if e2[0] <= 600.0 else "walk-off (600-700 C)"
-    if r["status"] == "stopped":
+        return ("walk-off" if e2[0] <= 600.0 else "walk-off (600-700 C)") + note
+    if r["status"] == "diverged" and max(x["T_beam"] for x in r["rows"]) >= 700.0:
+        return "no walk-off to 700 C" + note
+    if r["status"] in ("diverged", "stopped"):
         return "INCOMPLETE"
     return "no walk-off to %.0f C" % peak
 

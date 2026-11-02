@@ -109,24 +109,36 @@ def recess_detail(out):
     return "recess_detail.png"
 
 
+BASE = "check_rate_half"     # the reported baseline (half rate, preregistration change log 2026-10-25)
+# runs drawn in colour and named in the legends; every other half-rate run is drawn thin and grey
+KEY = (BASE, "mu0_r0.5", "Q12_clear_mu0_r0.5", "S7_peak700_r0.5", "favourable", "favourable_dump", "favourable_s6",
+       "nist_replica")
+
+
 def _runs():
     return {f.stem: json.loads(f.read_text()) for f in sorted(SHELL.glob("*.json"))}
 
 
+def _half(runs):
+    """Half-rate runs (the reported set and its diagnostics), key runs last so they draw on top."""
+    half = {n: r for n, r in runs.items() if r["config"]["rate"] == 0.5}
+    return sorted(half.items(), key=lambda kv: kv[0] in KEY)
+
+
 def shell_histories(out):
     runs = _runs()
-    if not runs:
+    if BASE not in runs:
         return None
     fig, axs = plt.subplots(2, 2, figsize=(9.5, 6.4))
-    for n, r in runs.items():
+    for n, r in _half(runs):
         rows = r["rows"]
         t = np.array([x["t"] for x in rows])
-        T = np.array([x["T_beam"] for x in rows])
         heat = t >= 1.1
-        axs[0, 0].plot(t[heat], [x["lat79"] for x in np.array(rows)[heat]], label=n, lw=1)
-        axs[0, 1].plot(t[heat], [-x["ax79"] for x in np.array(rows)[heat]], label=n, lw=1)
-        axs[1, 0].plot(t[heat], [np.linalg.norm(x["face79"]) for x in np.array(rows)[heat]], label=n, lw=1)
-        axs[1, 1].plot(t[heat], [x["twist79"] for x in np.array(rows)[heat]], label=n, lw=1)
+        st = dict(label=n, lw=1.1) if n in KEY else dict(color="0.8", lw=0.5)
+        axs[0, 0].plot(t[heat], [x["lat79"] for x in np.array(rows)[heat]], **st)
+        axs[0, 1].plot(t[heat], [-x["ax79"] for x in np.array(rows)[heat]], **st)
+        axs[1, 0].plot(t[heat], [np.linalg.norm(x["face79"]) for x in np.array(rows)[heat]], **st)
+        axs[1, 1].plot(t[heat], [x["twist79"] for x in np.array(rows)[heat]], **st)
     axs[0, 0].axhline(6.25, color="k", ls="--", lw=0.8)
     axs[0, 0].axhline(asm.value("A94")["plate_inner"] - 4.79, color="0.5", ls=":", lw=0.8)
     axs[0, 0].text(1.15, 6.4, "walk-off 6.25 in.", fontsize=7)
@@ -136,10 +148,9 @@ def shell_histories(out):
     for a, lab in zip(axs.ravel(), ("girder end at col 79, west (in.)", "girder end toward col 79 (in.)",
                                      "bearing force on col 79 face (kip)", "girder end twist (deg)")):
         a.set_ylabel(lab)
-        a.set_xlabel("time (s); heating 1.1 to 2.6 s, hold to 4.0 s")
-        sec = a.secondary_xaxis("top", functions=(lambda t: 20 + np.clip(t - 1.1, 0, 1.5) * 386.7,
-                                                  lambda T: 1.1 + (T - 20) / 386.7))
-        sec.set_xlabel("beam temperature (C)", fontsize=7)
+        a.set_xlabel("time (s); half rate: 600 C at 4.1 s, 700 C at 4.6 s", fontsize=8)
+    axs[0, 0].set_ylim(top=10.0)
+    axs[1, 1].set_ylim(-5.0, 70.0)
     axs[0, 0].legend(fontsize=6)
     fig.tight_layout()
     fig.savefig(out / "shell_histories.png")
@@ -149,9 +160,9 @@ def shell_histories(out):
 
 def shell_beam_forces(out):
     runs = _runs()
-    if "baseline" not in runs:
+    if BASE not in runs:
         return None
-    rows = runs["baseline"]["rows"]
+    rows = runs[BASE]["rows"]
     t = np.array([x["t"] for x in rows])
     N = np.array([x["beamN"] for x in rows])
     fig, ax = plt.subplots(figsize=(6.5, 3.6))
@@ -160,7 +171,7 @@ def shell_beam_forces(out):
         ax.plot(t, N[:, k], lw=1, label=names[k])
     ax.set_xlabel("time (s)")
     ax.set_ylabel("beam axial force at quarter span (kip), - = compression")
-    ax.set_title("Baseline: floor-beam axial forces")
+    ax.set_title("Baseline (half rate): floor-beam axial forces")
     ax.legend(fontsize=7)
     fig.tight_layout()
     fig.savefig(out / "shell_beam_forces.png")
@@ -171,7 +182,7 @@ def shell_beam_forces(out):
 def shell_girder_profile(out):
     """Lateral displacement of the girder along its length at 600 C (end of run), from saved node positions."""
     from shell_model import Config, build
-    have = [n for n in ("baseline", "check_mesh_coarse") if (SHELL / f"{n}.npz").exists()]
+    have = [n for n in ("check_mesh_coarse_r0.5", BASE, "check_mesh_fine_r0.5") if (SHELL / f"{n}.npz").exists()]
     if not have:
         return None
     fig, ax = plt.subplots(figsize=(6.5, 3.6))
@@ -199,16 +210,17 @@ def shell_girder_profile(out):
 
 def shell_energy(out):
     runs = _runs()
-    if "baseline" not in runs:
+    if BASE not in runs:
         return None
     fig, ax = plt.subplots(figsize=(6.5, 3.2))
-    for n, r in runs.items():
+    for n, r in _half(runs):
         rows = r["rows"]
         t = np.array([x["t"] for x in rows])
         ke = np.array([x["ke"] for x in rows])
         ie = np.array([x["ie"] for x in rows])
         ok = ie > 1.0
-        ax.semilogy(t[ok], (ke / ie)[ok], lw=0.8, label=n)
+        st = dict(label=n, lw=0.9) if n in KEY else dict(color="0.8", lw=0.5)
+        ax.semilogy(t[ok], (ke / ie)[ok], **st)
     ax.axhline(0.05, color="k", ls="--", lw=0.8)
     ax.axvline(1.1, color="0.5", ls=":", lw=0.8)
     ax.text(1.12, 0.3, "heating starts", fontsize=7)

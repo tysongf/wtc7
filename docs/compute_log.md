@@ -112,3 +112,10 @@ sleeps as well (the half-rate runs took 3.7 to 4.7 h). No result depends on wall
   connectivity hash the same before and after the change. At 0.9 in. the smallest edge is now 0.387 in.,
   and 2,000 cycles step stably. The diverged attempt is kept in `results/phase1/shell/superseded/`, and
   the run was restarted on 2026-10-27, beside the priority-2 queue.
+
+### 2026-11-01 to 2026-11-02: NIST-replica diagnostic
+
+- `nist_replica` (`--set nist`, one job on 4 threads) started 2026-11-01T06:53Z, after the change-log
+  hash above, and finished 2026-11-01T08:50Z (7,068 s). It walked off, so the four restore runs
+  (`--set nist_restore`, two jobs on 2 threads each) ran from 2026-11-02T02:10Z to 2026-11-02T09:41Z,
+  3.2 to 4.1 h each. The laptop was rebooted between the two sets; no run was in progress.

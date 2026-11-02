@@ -64,13 +64,16 @@ def shell_runs():
 
 
 def run_status():
-    from run_shell import P1, P2
+    from run_shell import FOLLOW, MESH, NIST, NIST_RESTORE, P1, P1_HALF, P2
     done = {f.stem for f in SHELL.glob("*.json")}
     running = {f.stem for f in LOGS.glob("*.log")} - done if LOGS.exists() else set()
     rows = []
-    for prio, table_ in (("1", P1), ("2", P2)):
+    for prio, table_ in (("1, full rate", P1), ("1, half rate", P1_HALF), ("mesh", MESH), ("2, half rate", P2),
+                         ("Section 6 follow-up", FOLLOW), ("NIST replica", NIST),
+                         ("NIST restore", NIST_RESTORE)):
         for n, kw in table_.items():
-            st = "done" if n in done else ("running" if n in running else "queued")
+            st = "done" if n in done else ("running" if n in running else
+                                           "conditional" if table_ is NIST_RESTORE else "queued")
             desc = ", ".join(f"{k}={v}" for k, v in kw.items()) or "baseline values"
             rows.append((prio, n, desc, st))
     return rows
@@ -206,9 +209,9 @@ def build():
 Every number on this page is read from the run outputs, assumption table and checksum files at build time
 (<code>scripts/build_report.py</code>).</p>
 <div class="banner"><b>Interim. The Phase 1 gate has not passed, and nothing here is a finding about why WTC 7 collapsed.</b>
-Detailed-model runs completed: {n_done} of {len(status)} preregistered ({n_run} running). Conclusions below are limited to what
-the completed runs show and will change as runs finish.</div>""")
-    base = runs.get("baseline")
+Detailed-model runs completed: {n_done} of {len(status)} listed ({n_run} running). The outcome class is stated (Section 6);
+it differs from NIST's, and the NIST-replica runs trace the difference to the side plates at column 79 (Section 7).</div>""")
+    base = runs.get("check_rate_half")      # the reported baseline: half rate (preregistration change log 2026-10-25)
     bev = base["events"] if base else {}
     S.append('<h2 id="summary">1. Summary</h2>')
     S.append("""<p>The question for Phase 1 is whether heating of the floor 13 framing in the northeast corner of WTC 7, as
@@ -230,22 +233,30 @@ evidence gathered so far, the models built and what their completed runs show.</
     ]
     if base:
         mx = max(x["lat79"] for x in base["rows"])
+        nmax = -min(min(x["beamN"]) for x in base["rows"])
+        bow = max(abs(x["girder_bow"]) for x in base["rows"])
         findings.append(
-            f"<b>In the detailed shell model's baseline the girder does not leave its seat</b> by the end of NIST's schedule "
-            f"(600 C beams, 500 C girder, held 1.4 s). Its end at column 79 moves at most {mx:.2f} in. west and twists "
-            f"{base['rows'][-1]['twist79']:.1f} deg. The connection sequence matches NIST's order through column 44 "
-            f"(first stud {T(bev, 'first_stud')} C, all column 79 bolts {T(bev, 'E1_g79_all_bolts')} C, all column 44 bolts "
-            f"{T(bev, 'E3_g44_all_bolts')} C; NIST 103, 194 and 476 C), but no floor beam buckles, where NIST's beams all began to "
-            "buckle at 600 C (Section 6).")
+            "<b>In the detailed shell model no run walks off under NIST's schedule</b> (600 C beams, 500 C girder, held 1.4 s): "
+            "not the baseline and not any one-at-a-time value of the preregistered sweeps. In the baseline the girder end at "
+            f"column 79 moves at most {mx:.2f} in. west, against 6.25 in. for walk-off. The reported runs heat at half NIST's rate, "
+            "because the full rate failed the preregistered rate check (Sections 6 and 8).")
         findings.append(
-            "<b>The main difference from NIST traced so far:</b> the floor beams in this model carry little axial force. The girder is "
-            "laterally flexible and its top flange slides under the slab without friction, so the expanding beams push the whole "
-            "girder about 5 to 6 in. west along its middle instead of building up compression. NIST's beams buckled under compression "
-            "(Section 7).")
+            "<b>One run walks off: the preregistered most-favourable combination, at 700 C during the hold,</b> after the girder "
+            "buckles; a repeat reproduces it and continues to loss of support. The Section 6 repeat, with four ends replaced by the "
+            "values the sweeps showed move the girder further, does not walk off. The outcome class is <b>CONDITIONAL</b>, on the "
+            "combination as a whole: no single parameter flips the result (Section 6).")
+        findings.append(
+            "<b>The model departs from NIST at beam buckling.</b> The connection events agree with NIST's within 40 C through "
+            f"column 79 (first stud {T(bev, 'first_stud')} C, all column 79 bolts {T(bev, 'E1_g79_all_bolts')} C; NIST 103 and "
+            "194 C), but no floor beam buckles in the baseline, where NIST's northmost beam began to buckle at 436 C and all of "
+            f"them by 600 C. The beams' compression peaks at {nmax:.0f} kip; the expanding beams push the girder sideways instead "
+            f"(it bows {bow:.1f} in.). What explains the difference is not yet found; a run with NIST's idealizations at column 79 "
+            "is under way (Section 7).")
     findings.append("<b>Checks.</b> The shell solver written for this study reproduces closed-form results (thermal expansion, "
                     "restrained force, Euler buckling, friction thresholds, bolt failure) and matches CalculiX within 1.6 % for "
-                    "lateral-torsional buckling. The preregistered mesh criterion is narrowly missed on one measure, and kinetic energy "
-                    "exceeds 5 % of internal energy during NIST's 1 s gravity ramp and briefly after bolt failures (Section 8).")
+                    "lateral-torsional buckling. Two preregistered checks fail: mesh, narrowly (Section 8), and quasi-static, "
+                    "because kinetic energy exceeds 5 % of internal energy during the gravity ramp in every run and briefly during "
+                    "heating in most. Neither can change an outcome, but the Phase 1 gate has not passed.")
     S.append('<ol class="find">' + "".join(f"<li>{f}</li>" for f in findings) + "</ol>")
 
     # ------------------------------------------------------------ question and NIST account
@@ -343,7 +354,7 @@ input is chosen or changed after seeing the result it affects; corrections from 
     S.append("""<p><b>Events.</b> E1: all four erection bolts at the column 79 seat failed. E2: walk-off at column 79, the girder end moving
 6.25 in. laterally or 5.5 in. along its axis after E1 (errata values). E2r: twist at column 79 of atan(bf/d) = 19.2 deg. E2s:
 physical loss of support, the girder end dropping 2 in. E3: all column 44 bolts failed. E4: a floor beam deflecting laterally
-by L/50. E5: the girder bowing by L/50. <b>Classes:</b> CONFIRMS if E1 &le; 400 C and E2 (or E2r, E2s) &le; 700 C in the
+by L/50. E5 (monitored, not preregistered): the girder bowing by L/50. <b>Classes:</b> CONFIRMS if E1 &le; 400 C and E2 (or E2r, E2s) &le; 700 C in the
 baseline; CONTRADICTS if no run within the ranges reaches E2 by 700 C; CONDITIONAL otherwise.</p>""")
     S.append('<h3 id="m-models">4.2 Models</h3>')
     S.append(table(["Item", "NIST partial-floor model (§8.8)", "This study, detailed shell model"], [
@@ -354,7 +365,8 @@ baseline; CONTRADICTS if no run within the ranges reaches E2 by 700 C; CONDITION
         ("Connections", "Bolts and studs as nonlinear springs (shear and axial)", "Breakable springs with NIST's temperature-dependent strength; hole clearance; slots"),
         ("Seats, columns", "Shells, welded edges fixed; column 79 flange and side-plate projections modelled", "Rigid planes with friction, including the side plates' inner faces and ends; seat edges act on the flange"),
         ("Friction", "Not described", "0.3 baseline (AISC Class A slip coefficient as a proxy), swept 0 to 0.6"),
-        ("Loading", "Gravity 1 s; heating 1.1 to 2.6 s to 600/500 C; analysis to about 4 s", "Same schedule"),
+        ("Loading", "Gravity 1 s; heating 1.1 to 2.6 s to 600/500 C; analysis to about 4 s",
+         "Same schedule; the reported runs heat at half the rate (600/500 C at 4.1 s), held 1.4 s"),
         ("Girder end stiffeners", "Not modelled (NIST, 2013 and 2020)", "Not in baseline; one run as drawn"),
     ]))
     S.append("""<p>The plan-view screening model (<code>phase1/plan_model.py</code>) uses beam elements in the horizontal plane with the same
@@ -411,95 +423,182 @@ occurred in {len(walk)} runs, all at friction 0.22 or below or in combinations i
     # ------------------------------------------------------------ results: detailed
     S.append('<h2 id="detailed">6. Detailed shell model results</h2>')
     if runs:
+        S.append("""<p>Outcome class (preregistration Section 3): <b>CONDITIONAL</b>. No run reaches E2, E2r or E2s under NIST's
+600 C schedule. The preregistered most-favourable combination (<code>favourable</code>: the Section 6 ends, column 79 0.4 in.
+further away, peak 700 C) walks off at 700 C during the hold: the girder buckles, its end twists past atan(bf/d) and moves
+6.25 in. west, and the solver then diverges 0.008 s after E2. Its repeat with state dumps (<code>favourable_dump</code>, a
+diagnostic) reproduces the sequence within 0.07 s and continues to loss of support without diverging. The Section 6 repeat
+(<code>favourable_s6</code>: standard holes, friction 0.1, the drawn column 44 gap and 0.25 in. bolt deformation, the values
+that each moved the girder end furthest) does not walk off, and its girder does not buckle. No single parameter moves the
+result across the 700 C line, so the condition is the combination as a whole. Full account: <code>docs/writeup.md</code>
+Sections 4 and 5.</p>""")
         rows_ = []
         for nme, r in runs.items():
             ev, h = r["events"], r["rows"]
             e2 = [k for k in ("E2_walkoff_79", "E2r_rocking_79", "E2_support_lost_79") if k in ev]
-            rows_.append((code(nme), r["config"]["mesh"], T(ev, "first_stud"), T(ev, "E1_g79_all_bolts"),
-                          T(ev, "E3_g44_all_bolts"), T(ev, "E4_beam_buckled"), T(ev, "E5_girder_buckled"),
-                          chip(", ".join(f"{k.split('_')[0]} {ev[k]['T_beam']:.0f} C" for k in e2), "bad") if e2 else chip("none", "ok"),
+            lost = ", ".join(f"{k.split('_')[0]} {ev[k]['T_beam']:.0f} C" for k in e2)
+            if r["status"] == "diverged":
+                lost += ", then numerical stop" if e2 else "numerical stop"
+            rows_.append((code(nme), f"{r['config']['rate']:g}", r["config"]["mesh"], T(ev, "first_stud"),
+                          T(ev, "E1_g79_all_bolts"), T(ev, "E3_g44_all_bolts"), T(ev, "E4_beam_buckled"),
+                          T(ev, "E5_girder_buckled"), chip(lost, "bad") if lost else chip("none", "ok"),
                           f"{max(x['lat79'] for x in h):.2f}", f"{-min(x['ax79'] for x in h):.2f}",
                           f"{max(abs(x['twist79']) for x in h):.1f}", f"{r['wall_s'] / 3600:.1f}"))
-        rows_.append(("NIST Table 8-2", "1.8", "103", "194", "476", "436", "&ndash;", "rocking, after 600 C", "&ndash;", "&ndash;",
-                      "&ndash;", "&ndash;"))
-        S.append(table(["Run", "Mesh (in.)", "First stud", "E1", "E3", "E4", "E5", "Seat lost (E2, E2r, E2s)", "Max west (in.)",
-                        "Max toward col 79 (in.)", "Max twist (deg)", "Wall (h)"], rows_))
-        S.append("<p class='small'>Temperatures are floor-beam temperatures in C; the girder is at 20 + 0.828 (beam - 20).</p>")
-        for key, cap in (("shell_histories", "Detailed model: girder end at column 79 during heating and the hold, for each completed "
-                          "run: westward movement (dashed line: walk-off; dotted: west side plate), movement toward the column, bearing "
-                          "force on the column 79 face, and twist (dashed: E2r)."),
+        rows_.append(("NIST Table 8-2", "1", "1.8", "103", "194", "476", "436", "&ndash;", "rocking, after 600 C", "&ndash;",
+                      "&ndash;", "&ndash;", "&ndash;"))
+        S.append(table(["Run", "Rate", "Mesh (in.)", "First stud", "E1", "E3", "E4", "E5", "Seat lost (E2, E2r, E2s)",
+                        "Max west (in.)", "Max toward col 79 (in.)", "Max twist (deg)", "Wall (h)"], rows_))
+        S.append("<p class='small'>Temperatures are floor-beam temperatures in C; the girder is at 20 + 0.828 (beam - 20). Rate is "
+                 "the multiple of NIST's heating rate: the reported runs are at 0.5 (<code>check_rate_half</code> is the reported "
+                 "baseline); the full-rate runs (1) are kept and reported as such. Wall times before 2026-10-25 include laptop "
+                 "sleep.</p>")
+        nmax = -min(min(x["beamN"]) for x in base["rows"]) if base else 0.0
+        for key, cap in (("shell_histories", "Detailed model, half-rate runs: girder end at column 79 during heating and the hold: "
+                          "westward movement (dashed line: walk-off; dotted: west side plate), movement toward the column, bearing "
+                          "force on the column 79 face, and twist (dashed: E2r). Named runs in colour, every other half-rate run "
+                          "in grey."),
                          ("shell_girder_profile", "Lateral movement of the girder's bottom and top flanges along its length at the "
-                          "end of the run. The middle moves 5 to 6 in. west; the column 79 end is held near 1.2 in. at the bottom "
-                          "flange, while the top flange there moves about 3 in. (the end twists)."),
-                         ("shell_beam_forces", "Baseline: axial force in each floor beam at quarter span. The beams carry less than "
-                          "100 kip because the girder gives way laterally; a fully restrained W24x55 at 600 C would reach its squash "
-                          "load of several hundred kip.")):
+                          "end of the baseline run, on the three meshes (half rate)."),
+                         ("shell_beam_forces", f"Baseline (half rate): axial force in each floor beam at quarter span. The "
+                          f"compression peaks at {nmax:.0f} kip because the girder gives way laterally; a W24x55's squash load at "
+                          "600 C is about 380 kip (EN 1993-1-2 strength reduction).")):
             if figs.get(key):
                 n = next(fn)
                 S.append(fig(f"{key}.png", cap, n))
     else:
         S.append("<p>No detailed runs have finished yet.</p>")
-    st_rows = [(p, code(nm), E(d), chip(s, {"done": "ok", "running": "warn", "queued": "info"}[s])) for p, nm, d, s in status]
-    S.append("<details><summary>Run list and status (preregistration Section 9.5)</summary>" +
+    st_rows = [(p, code(nm), E(d), chip(s, {"done": "ok", "running": "warn", "queued": "info", "conditional": "info"}[s]))
+               for p, nm, d, s in status]
+    S.append("<details><summary>Run list and status (preregistration Section 9.5 and change log)</summary>" +
              table(["Priority", "Run", "Settings", "Status"], st_rows) + "</details>")
 
     # ------------------------------------------------------------ discrepancies
     S.append('<h2 id="diff">7. Differences from NIST and their traced causes</h2>')
-    S.append(table(["Observation", "NIST", "This study", "Traced to", "Status"], [
+    bmx = max(x["lat79"] for x in base["rows"]) if base else 0.0
+    btw = max(abs(x["twist79"]) for x in base["rows"]) if base else 0.0
+    bbow = max(abs(x["girder_bow"]) for x in base["rows"]) if base else 0.0
+    nmax = -min(min(x["beamN"]) for x in base["rows"]) if base else 0.0
+    def e2_txt(r):
+        ev = r["events"]
+        hits = sorted((ev[k]["T_beam"], k) for k in ("E2_walkoff_79", "E2r_rocking_79", "E2_support_lost_79") if k in ev)
+        return f"{hits[0][1].split('_')[0]} at {hits[0][0]:.0f} C" if hits else "none to %.0f C" % r["config"]["peak"]
+
+    rep = runs.get("nist_replica")
+    rep_txt = ("<code>nist_replica</code> " + e2_txt(rep)) if rep else "<code>nist_replica</code> not run"
+    S.append(table(["Observation", "NIST", "This study (baseline, half rate)", "Traced to", "Status"], [
         ("Column 79 bolts fail earlier", "E1 at 194 C", f"E1 at {T(bev, 'E1_g79_all_bolts')} C",
-         "Bolt spring stiffness and hole clearance not given by NIST (A24, A31; S13 sweeps them)", chip("open", "warn")),
-        ("Column 44 bolts fail later", "E3 at 476 C", f"E3 at {T(bev, 'E3_g44_all_bolts')} C",
-         "Geometry at column 44 (girder end, pocket clearances; girder piece drawing missing) and S12", chip("open", "warn")),
-        ("No floor-beam buckling", "Northmost at 436 C, all at 600 C", "None by 600 C; beam axial force below 100 kip",
-         "Girder top flange frictionless under the slab (A44, from NIST §11.2.3) and girder weak-axis flexibility: the beams "
-         "push the girder aside instead of building compression", chip("being tested", "info")),
-        ("Girder not lost at column 79", "Rocked off its seat after beams buckled", "Held at about 1.2 in. west, twisted about 3 deg",
-         "Follows from the row above; side plates also limit westward travel inside the recess (screening model)",
-         chip("being tested", "info")),
-        ("Face angle at column 79", "Not stated in NCSTAR 1-9", "4.17 deg from the drawings", "Drawings 9114, 1091", chip("settled", "ok")),
+         "Bolt deformation at failure and hole clearance, not given by NIST (A24, A31); S13 moves E1 from 120 to 141 C",
+         chip("open", "warn")),
+        ("Column 44 bolts fail much earlier", "E3 at 476 C", f"E3 at {T(bev, 'E3_g44_all_bolts')} C (544 C at full rate)",
+         "The two girder-end bolt groups fail within about 20 C of each other and the first to go unloads the other; the "
+         "order flips with heating rate, mesh and several inputs, and no walk-off result depends on it (writeup 4.2)",
+         chip("mechanism found", "info")),
+        ("No floor-beam buckling", "Northmost at 436 C, all by 600 C", f"None by 600 C; beam compression at most {nmax:.0f} kip",
+         f"The expanding beams push the girder sideways (it bows {bbow:.1f} in.) instead of building compression. The girder "
+         "slides under the slab without friction in both models (A44, NIST §11.2.3), so what stiffened NIST's girder is not yet "
+         "found", chip("open", "warn")),
+        ("Girder not lost at column 79", "Rocked off its seat after the beams buckled",
+         f"Held at {bmx:.2f} in. west, twisted {btw:.1f} deg; only the combined run walks off, at 700 C",
+         "NIST's model had no side plates at column 79. With NIST's idealizations together the drawn framing walks off ("
+         + rep_txt + ", by sliding along the face); putting back the drawn face with the side plates holds it to 700 C. "
+         "NIST's own mechanism, rocking after the beams buckle, is not reproduced (see the beam-buckling row)",
+         chip("traced", "ok")),
+        ("Face angle at column 79", "Not stated in NCSTAR 1-9 (14.6 deg digitized from Fig. 8-16)", "4.17 deg from the drawings",
+         "Drawings 9114, 1091", chip("settled", "ok")),
     ]))
     S.append("""<p>A difference is reported as traced only when a run that changes the identified input moves the result toward NIST's.
-The runs that test these explanations are in the priority-1 and priority-2 lists (friction, side plates, end position,
-peak temperature, bolt and stud properties). Girder-to-slab friction is not one of the preregistered sweeps; if the remaining
-runs leave the beam-buckling difference unexplained, it is the next candidate and will be added as a logged amendment.</p>""")
+One at a time, none of friction 0, the side plates removed, both together (to 600 C), the end stiffeners or the column 79
+position within &plusmn;0.4 in. produces a walk-off. The NIST-replica run (<code>--set nist</code>, change log 2026-11-01)
+applies NIST's column 79 idealizations together: the face 14.6 deg off square to the girder with a 0.5 in. end clearance, no
+side plates, friction 0 and the short slot, at half rate to 700 C. Four restore runs (<code>--set nist_restore</code>) each put
+one drawn feature back. The plates cannot go back alone, because at 14.6 deg they cut through the girder end, so
+<code>nist_face_plates</code> is read against <code>nist_face_drawn</code>.</p>""")
+    nr = [(n, what) for n, what in (("nist_replica", "nothing"), ("nist_holes", "standard holes"),
+                                    ("nist_face_drawn", "face angle and position"), ("nist_mu0.3", "friction 0.3"),
+                                    ("nist_face_plates", "face angle and position, with the side plates")) if n in runs]
+    if nr:
+        from summarize_shell import classify
+
+        def lat_at(r, T0):
+            x = [x for x in r["rows"] if x["T_beam"] >= T0]
+            return f"{x[0]['lat79']:.2f}" if x else "-"
+        S.append(table(["Run", "Changed back", "West movement at 600 C (in.)", "Largest girder bow (in.)", "First E2, E2r or E2s",
+                        "Reading"],
+                       [(code(n), E(what), lat_at(runs[n], 600.0), f"{max(abs(x['girder_bow']) for x in runs[n]['rows']):.1f}",
+                         e2_txt(runs[n]), E(classify(runs[n]))) for n, what in nr]))
+        S.append("""<p>The holes change nothing. The drawn face slows the sliding (about 1 in. per 100 C against 1.6 at 14.6 deg)
+and delays walk-off past 600 C, but not past 700 C. Friction 0.3 stops the sliding, but the girder then buckles sideways and
+twists its end off at 650 to 655 C, in a dynamic phase where kinetic energy is up to a third of internal energy. With the drawn
+face and the side plates, the end bears on the west plate from 488 C and stays there to 700 C while the girder buckles. So the
+plates hold the girder, and the face angle decides whether a plate-less walk-off falls inside NIST's 600 C ramp. Not tested:
+the drawn framing without plates at friction 0.3 beyond 600 C.</p>""")
 
     # ------------------------------------------------------------ checks
     S.append('<h2 id="checks">8. Model checks and exceptions</h2>')
-    cm = runs.get("check_mesh_coarse")
+    import numpy as np
+    from run_shell import FOLLOW, MESH, P1_HALF, P2
     chk = []
-    if base and cm:
-        e1b, e1c = base["events"]["E1_g79_all_bolts"]["T_beam"], cm["events"]["E1_g79_all_bolts"]["T_beam"]
-        lb, lc = max(x["lat79"] for x in base["rows"]), max(x["lat79"] for x in cm["rows"])
-        chk.append(("Mesh: E1 between 3.6 and 1.8 in.", "change &lt; 10 C", f"{abs(e1b - e1c):.1f} C", chip("pass", "ok")))
-        chk.append(("Mesh: column 79 lateral movement (no E2)", "change &lt; 2 %", f"{lb:.3f} vs {lc:.3f} in. ({abs(lb - lc) / lb * 100:.1f} %)",
-                    chip("not met", "bad") if abs(lb - lc) / lb > 0.02 else chip("pass", "ok")))
-    if base:
-        import numpy as np
-        rr = base["rows"]
-        t = np.array([x["t"] for x in rr]); ke = np.array([x["ke"] for x in rr]); ie = np.array([x["ie"] for x in rr])
-        ok = ie > 1
-        heat = ok & (t >= 1.1)
-        grav = ok & (t < 1.1)
+
+    def e1(r):
+        return r["events"]["E1_g79_all_bolts"]["T_beam"]
+
+    def lat_end(r):
+        return r["rows"][-1]["lat79"]
+
+    full, quarter = runs.get("baseline"), runs.get("check_rate_quarter")
+    if base and full and quarter:
+        keys = sorted(set(base["events"]) & set(quarter["events"]))
+        dq = max(abs(base["events"][k]["T_beam"] - quarter["events"][k]["T_beam"]) for k in keys)
+        chk.append(("Rate: full against half rate", "T_E1 to T_E4 within 10 C (or 2 %)",
+                    f"T_E3 {T(full['events'], 'E3_g44_all_bolts')} against {T(bev, 'E3_g44_all_bolts')} C",
+                    chip("rule applied: half rate reported", "warn")))
+        chk.append(("Rate: half against quarter rate", "(diagnostic)", f"every event within {dq:.1f} C", chip("pass", "ok")))
+    for nm, lab in (("check_mesh_coarse_r0.5", "3.6"), ("check_mesh_fine_r0.5", "0.9")):
+        cm = runs.get(nm)
+        if base and cm:
+            d1, lb, lc = abs(e1(base) - e1(cm)), lat_end(base), lat_end(cm)
+            chk.append((f"Mesh: T_E1, {lab} against 1.8 in.", "change &lt; 10 C (or 2 %)", f"{d1:.1f} C",
+                        chip("pass", "ok") if d1 < max(10.0, 0.02 * e1(base)) else chip("fail", "bad")))
+            chk.append((f"Mesh: column 79 lateral movement (no E2), {lab} against 1.8 in.", "change &lt; 2 %",
+                        f"{lc:.3f} against {lb:.3f} in. ({abs(lb - lc) / lb * 100:.1f} %)",
+                        chip("fail", "bad") if abs(lb - lc) / lb > 0.02 else chip("pass", "ok")))
+    qs = [n for n in ["check_rate_half", *P1_HALF, *MESH, *P2, *FOLLOW] if n in runs]
+    if qs:
+        grav_max, n_heat, heat_max = 0.0, 0, []
+        for n in qs:
+            rr = runs[n]["rows"]
+            t = np.array([x["t"] for x in rr]); ke = np.array([x["ke"] for x in rr]); ie = np.array([x["ie"] for x in rr])
+            ok = ie > 1
+            e2 = [v["t"] for k, v in runs[n]["events"].items() if k.startswith("E2")]
+            heat = ok & (t >= 1.1) & (t < (min(e2) if e2 else 1e9))
+            grav_max = max(grav_max, (ke / ie)[ok & (t < 1.1)].max())
+            n_heat += bool(((ke / ie)[heat] > 0.05).any())
+            heat_max.append((ke / ie)[heat].max())
+        heat_max.sort()
         chk.append(("Quasi-static, gravity ramp (0 to 1.1 s)", "KE &lt; 5 % of IE throughout",
-                    f"max {(ke / ie)[grav].max() * 100:.0f} %, {((ke / ie)[grav] > 0.05).mean() * 100:.0f} % of samples above",
-                    chip("exception", "bad")))
-        chk.append(("Quasi-static, heating and hold", "KE &lt; 5 % of IE throughout",
-                    f"max {(ke / ie)[heat].max() * 100:.1f} %, {((ke / ie)[heat] > 0.05).mean() * 100:.1f} % of samples above",
-                    chip("exception", "bad")))
+                    f"exceeded in every run, up to {grav_max * 100:.0f} %", chip("fail", "bad")))
+        chk.append(("Quasi-static, heating and hold, before walk-off", "KE &lt; 5 % of IE throughout",
+                    f"exceeded in {n_heat} of {len(qs)} runs; largest {heat_max[-1] * 100:.0f} % (a girder buckling), "
+                    f"otherwise at most {heat_max[-2] * 100:.1f} %", chip("fail", "bad")))
     chk.append(("Free thermal expansion", "within 1 %", "0.4 %", chip("pass", "ok")))
     chk.append(("Restrained force", "within 1 %", "exact while elastic", chip("pass", "ok")))
     chk.append(("Euler buckling", "within 2 %", "within 2 % (imperfection-corrected)", chip("pass", "ok")))
-    chk.append(("Rate check (half heating rate)", "events within 10 C", "pending", chip("pending", "info")))
     S.append(table(["Check (preregistration Sections 4 and 9.4)", "Criterion", "Result", "Status"], chk))
-    S.append("""<p>The mesh criterion on lateral movement is missed by about 1 percentage point (an absolute difference of 0.04 in.);
-under Section 9.4 the baseline must be rerun at 0.9 in. before the mesh question is closed. The kinetic-energy exceptions
-arise from NIST's 1 s gravity ramp, which excites the floor's first vertical mode, and from short transients when bolts snap;
-the half-rate rerun is the check that event temperatures do not depend on the loading rate. These are recorded as exceptions,
-not waived.</p>""")
+    S.append("""<p><b>Rate.</b> Halving the heating rate moved T_E3 by about 410 C, so under Section 9.4 every priority-1 run was
+repeated at half rate and the half-rate runs are the reported ones; priority 2 and the follow-up runs were made at half rate
+from the start. Half and quarter rate agree, so half rate is converged. The large move is not a smooth rate effect: the two
+girder-end bolt groups fail within about 20 C of each other, and at full rate the floor is still carrying the gravity transient
+when the race is decided.</p>
+<p><b>Mesh.</b> The 3.6 against 1.8 in. pair failed, so the 0.9 in. run decides (Section 9.4). It passes on T_E1 and fails on
+the lateral movement by a few tenths of a percentage point: 0.034 in., against the 6.25 in. that walk-off needs. Its hourglass
+energy was about 0.22 of internal energy, so the finer mesh is not clearly the more accurate one. Reported as a failure.</p>
+<p><b>Quasi-static.</b> The large ratios come from NIST's 1 s gravity ramp, before any heating; during heating they are short
+excursions at connection failures and buckling. Reported as a failure, not waived; the evidence that the results are not rate
+effects is the half-against-quarter-rate agreement.</p>""")
     if figs.get("shell_energy"):
         n = next(fn)
-        S.append(fig("shell_energy.png", "Ratio of kinetic to internal energy (log scale) in the completed detailed runs; dashed line "
-                     "at the preregistered 5 %.", n))
+        S.append(fig("shell_energy.png", "Ratio of kinetic to internal energy (log scale) in the half-rate detailed runs (named runs "
+                     "in colour, the rest grey); dashed line at the preregistered 5 %.", n))
 
     # ------------------------------------------------------------ limitations, open, next
     S.append('<h2 id="limits">9. Limitations</h2><ul class="tight">' + "".join(f"<li>{x}</li>" for x in [
@@ -510,15 +609,14 @@ not waived.</p>""")
         "Camber, the W12x26 framing in from the west and the slab's thermal response are not modelled.",
         "Friction values are proxies (AISC slip coefficient) with no WTC 7 measurement; they are swept, not known.",
         "The shell solver is new; it is verified against closed-form results and CalculiX for the checks listed, not for every mechanism.",
-        "Computing time: a full-mesh run took 14.7 h on the original laptop; the remaining runs are moving to a faster machine (docs/running_elsewhere.md).",
+        "The sweeps change one input at a time; only two combinations were run, and they disagree. The space between them is not explored.",
+        "The mesh and quasi-static checks fail (Section 8). Runs on two or more threads are not bit-for-bit repeatable: the combined "
+        "run's events moved by up to 0.07 s between two identical runs.",
+        "All runs were made on one laptop (docs/compute_log.md); a half-rate run took 3.7 to 10 h.",
     ]) + "</ul>")
     S.append('<h2 id="next">10. Next steps</h2><ol class="find">' + "".join(f"<li>{x}</li>" for x in [
-        "Finish the priority-1 runs: friction 0 to 0.28, side plates removed, girder end &plusmn;0.4 in., 700 C peak, heating then "
-        "cooling, half rate, end stiffeners as drawn.",
-        "Rerun the baseline at 0.9 in. (Section 9.4, run set <code>mesh</code>) and decide the mesh question.",
-        "Run priority 2 (the remaining preregistered sweeps and the combined run).",
-        "Trace the beam-buckling difference from NIST; if needed, add girder-to-slab friction as a logged amendment.",
-        "State the outcome class for the detailed model and decide the Phase 1 gate.",
+        "Decide on the two failed checks (<code>docs/phase1_gate.md</code>). The gate stays closed until then.",
+        "Phase 2 (NIST's computed fire temperatures) does not start before the gate passes.",
     ]) + "</ol>")
 
     # ------------------------------------------------------------ appendix

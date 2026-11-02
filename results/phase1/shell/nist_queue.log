@@ -1,0 +1,1 @@
+[2026-11-01T08:50Z] [   7069 s] nist_replica: stopped in 7068 s, 868968 cycles, events (beam C): {'g79_seat_bolts': 95.6, 'first_stud': 100.9, 'E1_g79_all_bolts': 131.3, 'E2@5.5': 463.6, 'E2@6.0': 494.5, 'E2@6.25': 511.4, 'E2_walkoff_79': 511.4, 'E3_g44_all_bolts': 524.4, 'E2@6.5': 547.1, 'first_fin_bolt': 599.3, 'E2_support_lost_79': 612.3, 'all_studs': 670.2}
