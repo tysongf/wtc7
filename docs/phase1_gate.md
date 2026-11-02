@@ -13,7 +13,7 @@ Gate definition: `docs/preregistration.md` Section 8. Current revision 2026-11-0
 | 2. Beam-element model: checks, baseline, S1 to S15 | Done (2026-10-22, below) |
 | 3. Detailed shell model: built, every Section 4 check passed, baseline and sweeps reported | **Not met.** Built; baseline, every sweep and both combined runs reported (`results/phase1/shell/summary.md`, writeup Section 4). Two checks fail: mesh and quasi-static |
 | 4. Column 79 buckling check at nine storeys | Done: hand calculation section 7 |
-| 5. Outcome class from the detailed model; if it differs from NIST, the modelling choice that explains it | Class stated: **CONDITIONAL** (writeup Section 5). It differs from NIST. **Explanation found** (NIST-replica runs, change log 2026-11-01): NIST's model had no side plates at column 79. Without them the model walks off by 700 C whichever single drawn feature is put back; with them nothing walks off under the 600 C ramp. NIST's mechanism (rocking after the beams buckle) is not reproduced; that is reported as a separate, unexplained difference |
+| 5. Outcome class from the detailed model; if it differs from NIST, the modelling choice that explains it | Class stated: **CONDITIONAL** (writeup Section 5). It differs from NIST. **Not met: explanation not found** (decision 2026-11-02). The NIST-replica runs (change log 2026-11-01) show that without the column 79 side plates the model walks off by 700 C whichever single drawn feature is put back, and with them nothing walks off under the 600 C ramp. But the replica walks off by sliding, with no beam buckling; NIST's mechanism (rocking after the beams buckle) is not reproduced, so the runs do not explain the difference |
 
 ## The failed checks
 
@@ -40,6 +40,7 @@ Either check can be cleared only by more runs. Waiving one would override the pr
 
 ## Before Phase 2 can start
 
+- Find the modelling choice that explains the difference from NIST (item 5); the beam-buckling difference is the remaining lead.
 - Clear or decide on the two failed checks (item 3).
 
 ## Decision (2026-10-22, superseded)

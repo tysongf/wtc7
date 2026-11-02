@@ -265,7 +265,7 @@ after the floor beams buckled (§8.8); this model, with the same inputs, does no
 The connection events up to E1 agree within 40 C. The model departs from NIST at beam buckling: in
 the baseline no beam buckles at all.
 
-**Why it differs: the side plates at column 79.** The preregistration (gate item 5) requires the
+**Why it differs: not found** (gate item 5, decision 2026-11-02). The preregistration requires the
 modelling choice that explains the difference. The one-at-a-time sweeps ruled out friction 0, side
 plates removed, both together (to 600 C), end stiffeners, and the column 79 position within ±0.4 in.,
 so NIST's idealizations were tested together and then taken back one at a time (change log
@@ -307,13 +307,18 @@ back to the drawings:
   while the girder buckles (bow 13.4 in. at 700 C, 19.6 in. in the hold). This is the same 3.98 in.
   as the drawn baseline at friction 0 (4.4).
 
-So the class differs from NIST's because NIST's model had no side plates at column 79. Without them,
-the model walks off by 700 C whichever single drawn feature is put back; with them, no run walks off
-under the 600 C ramp. The face angle decides whether the plate-less walk-off falls inside NIST's
-600 C ramp (14.6 deg) or after it (the drawn 4.17 deg). The plates and the face cannot be separated:
-at 14.6 deg the drawn plates cut through the girder end.
+In these runs the side plates at column 79, which NIST's model did not have, separate walk-off from
+no walk-off. Without them, the model walks off by 700 C whichever single drawn feature is put back;
+with them, no run walks off under the 600 C ramp. The face angle decides whether the plate-less
+walk-off falls inside NIST's 600 C ramp (14.6 deg) or after it (the drawn 4.17 deg). The plates and
+the face cannot be separated: at 14.6 deg the drawn plates cut through the girder end.
 
-Two limits on this reading. The drawn framing without plates at friction 0.3 was run only to 600 C
+This is not accepted as the explanation gate item 5 asks for. The replica reaches NIST's outcome by a
+different mechanism (sliding along the face, with no beam buckling), so it does not show why this
+model departs from NIST's partial-floor result, in which the girder rocked off after the beams
+buckled. The explanation is recorded as not found.
+
+Two further limits. The drawn framing without plates at friction 0.3 was run only to 600 C
 (`Q12_clear`, 1.47 in.), so whether its girder buckles off between 600 and 700 C, as in `nist_mu0.3`,
 is not tested. And the walk-offs after 600 C come in or after a dynamic phase (kinetic energy up to
 0.13 of internal energy in `nist_face_drawn` at 660 C, 0.33 in `nist_mu0.3`), where the quasi-static
@@ -364,7 +369,8 @@ reported as unexplained.
 
 ## 8. Next
 
-1. Done: the NIST-replica run and the four restore runs (change log 2026-11-01); Section 5 states the
-   explanation for gate item 5.
+1. Gate item 5 is open: the NIST-replica run and the four restore runs (change log 2026-11-01) did
+   not find the modelling choice that explains the difference from NIST (Section 5). The beam-buckling
+   difference is the remaining lead.
 2. A decision on the two failed checks (`docs/phase1_gate.md`). The gate stays closed until then.
 3. Phase 2 does not start before the gate passes.

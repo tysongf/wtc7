@@ -210,7 +210,7 @@ Every number on this page is read from the run outputs, assumption table and che
 (<code>scripts/build_report.py</code>).</p>
 <div class="banner"><b>Interim. The Phase 1 gate has not passed, and nothing here is a finding about why WTC 7 collapsed.</b>
 Detailed-model runs completed: {n_done} of {len(status)} listed ({n_run} running). The outcome class is stated (Section 6);
-it differs from NIST's, and the NIST-replica runs trace the difference to the side plates at column 79 (Section 7).</div>""")
+it differs from NIST's, and the NIST-replica runs did not find what explains the difference (Section 7).</div>""")
     base = runs.get("check_rate_half")      # the reported baseline: half rate (preregistration change log 2026-10-25)
     bev = base["events"] if base else {}
     S.append('<h2 id="summary">1. Summary</h2>')
@@ -499,10 +499,10 @@ Sections 4 and 5.</p>""")
          "found", chip("open", "warn")),
         ("Girder not lost at column 79", "Rocked off its seat after the beams buckled",
          f"Held at {bmx:.2f} in. west, twisted {btw:.1f} deg; only the combined run walks off, at 700 C",
-         "NIST's model had no side plates at column 79. With NIST's idealizations together the drawn framing walks off ("
-         + rep_txt + ", by sliding along the face); putting back the drawn face with the side plates holds it to 700 C. "
-         "NIST's own mechanism, rocking after the beams buckle, is not reproduced (see the beam-buckling row)",
-         chip("traced", "ok")),
+         "Not found. With NIST's idealizations together the drawn framing walks off (" + rep_txt + ", by sliding along the "
+         "face), and putting back the drawn face with the side plates holds it to 700 C. But NIST's mechanism, rocking after the "
+         "beams buckle, is not reproduced, so this does not explain the difference (see the beam-buckling row)",
+         chip("open", "warn")),
         ("Face angle at column 79", "Not stated in NCSTAR 1-9 (14.6 deg digitized from Fig. 8-16)", "4.17 deg from the drawings",
          "Drawings 9114, 1091", chip("settled", "ok")),
     ]))
@@ -531,7 +531,7 @@ and delays walk-off past 600 C, but not past 700 C. Friction 0.3 stops the slidi
 twists its end off at 650 to 655 C, in a dynamic phase where kinetic energy is up to a third of internal energy. With the drawn
 face and the side plates, the end bears on the west plate from 488 C and stays there to 700 C while the girder buckles. So the
 plates hold the girder, and the face angle decides whether a plate-less walk-off falls inside NIST's 600 C ramp. Not tested:
-the drawn framing without plates at friction 0.3 beyond 600 C.</p>""")
+the drawn framing without plates at friction 0.3 beyond 600 C. The replica reaches NIST's outcome by a different mechanism, so the explanation gate item 5 asks for is recorded as not found (decision 2026-11-02).</p>""")
 
     # ------------------------------------------------------------ checks
     S.append('<h2 id="checks">8. Model checks and exceptions</h2>')
@@ -615,6 +615,8 @@ effects is the half-against-quarter-rate agreement.</p>""")
         "All runs were made on one laptop (docs/compute_log.md); a half-rate run took 3.7 to 10 h.",
     ]) + "</ul>")
     S.append('<h2 id="next">10. Next steps</h2><ol class="find">' + "".join(f"<li>{x}</li>" for x in [
+        "Find the modelling choice that explains the difference from NIST (gate item 5); the beam-buckling difference is the "
+        "remaining lead.",
         "Decide on the two failed checks (<code>docs/phase1_gate.md</code>). The gate stays closed until then.",
         "Phase 2 (NIST's computed fire temperatures) does not start before the gate passes.",
     ]) + "</ol>")
