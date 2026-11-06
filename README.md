@@ -27,6 +27,7 @@ See `docs/phase1_gate.md` and `docs/writeup.md`.
 | `docs/phase1_gate.md` | Phase 1 gate note |
 | `docs/running_elsewhere.md` | Moving the detailed-model runs to another machine |
 | `reports/forensic/` | Forensic report web page (built by `scripts/build_report.py`) |
+| `reports/forensic/viewer/` | 3D viewer of the detailed-model runs (data from `scripts/export_viewer.py`; Vue 3.5.13 and Three.js 0.147.0 vendored in `vendor/` with checksums); opens from `file://` |
 | `docs/writeup.md` | Short write-up |
 | `wtc7/` | Library: materials (NIST Appendix E rebuilt, EN 1993-1-2), sections, assumptions, geometry sets, plan-view solver (`fe2d.py`), explicit shell solver (`xfe/`) |
 | `phase1/` | Hand calculations, beam-element model, shell model, run, verification and summary scripts |
@@ -66,6 +67,8 @@ scripts/fetch_drawings.sh                     # checks the archived drawing scan
 .venv/bin/python phase1/run_shell.py --set p1 --jobs 2 --threads 2   # about 1 day on 4 cores
 .venv/bin/python phase1/run_shell.py --set p2 --jobs 2 --threads 2
 .venv/bin/python phase1/summarize_shell.py    # results/phase1/shell/summary.md and plots
+.venv/bin/python scripts/export_viewer.py     # 3D viewer data, reports/forensic/viewer/data/ (about 15 s)
+.venv/bin/python scripts/build_report.py      # reports/forensic/index.html
 ```
 
 A single configuration: `.venv/bin/python phase1/run_one.py <name> key=value ...`

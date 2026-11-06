@@ -178,8 +178,8 @@ try{localStorage.setItem(k,nt)}catch(e){}});})();
 
 def build():
     import report_figures as rf
-    if OUT.exists():
-        shutil.rmtree(OUT)
+    if ASSETS.exists():                 # reports/forensic/viewer/ is built by scripts/export_viewer.py; keep it
+        shutil.rmtree(ASSETS)
     ASSETS.mkdir(parents=True)
     figs = {f.__name__: f(ASSETS) for f in rf.ALL}
     for p in ("drawings_col79.png", "friction.png"):
@@ -432,6 +432,14 @@ diagnostic) reproduces the sequence within 0.07 s and continues to loss of suppo
 that each moved the girder end furthest) does not walk off, and its girder does not buckle. No single parameter moves the
 result across the 700 C line, so the condition is the combination as a whole. Full account: <code>docs/writeup.md</code>
 Sections 4 and 5.</p>""")
+        if (OUT / "viewer" / "data" / "index.js").exists():
+            v = "viewer/index.html#"
+            S.append(f"""<p>Deformed shapes in 3D, with the column 79 history alongside: <a href="{v}a=check_rate_half">the
+viewer</a>. For example: <a href="{v}a=nist_replica&amp;b=nist_face_plates">the NIST replica against the replica with the drawn
+face and side plates</a>, <a href="{v}a=nist_replica&amp;b=nist_mu0.3">sliding against buckling and twisting off</a>, and
+<a href="{v}a=favourable_dump&amp;b=favourable_s6">the combined run against its Section 6 repeat</a>. The viewer shows node
+positions only, at each 50 C of beam temperature and at each column 79 bolt failure, so the 700 C hold is not in 3D; it opens
+from the repository without a server (<code>scripts/export_viewer.py</code>).</p>""")
         rows_ = []
         for nme, r in runs.items():
             ev, h = r["events"], r["rows"]
@@ -633,6 +641,7 @@ effects is the half-against-quarter-rate agreement.</p>""")
         ("Hand calculations", code("results/phase1/hand_calcs.md")), ("Screening results", code("results/phase1/summary.md, summary_drawings.md")),
         ("Detailed model and solver", code("phase1/shell_model.py, wtc7/xfe/")), ("Detailed results", code("results/phase1/shell/")),
         ("Compute log", code("docs/compute_log.md")), ("This page", code("scripts/build_report.py -> reports/forensic/index.html")),
+        ("3D viewer", code("scripts/export_viewer.py -> reports/forensic/viewer/")),
     ]))
 
     nav = [("summary", "1. Summary", 1), ("question", "2. Question and NIST's account", 1), ("evidence", "3. Evidence base", 1),
