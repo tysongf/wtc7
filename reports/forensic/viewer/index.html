@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>WTC 7 detailed model viewer</title>
+<link rel="stylesheet" href="viewer.css">
+</head>
+<body>
+<div id="app" v-cloak>
+  <header class="top">
+    <div>
+      <h1>Detailed shell model: deformed shapes</h1>
+      <p class="sub">Phase 1, half-rate runs. Snapshots of every node at each 50 &deg;C of beam temperature and at each
+        column 79 bolt failure; built from <code>results/phase1/shell/runs/</code> by <code>scripts/export_viewer.py</code>.
+        <a href="../index.html#detailed">Back to the report</a></p>
+    </div>
+  </header>
+
+  <section class="controls" aria-label="Viewer controls">
+    <label>Run
+      <select v-model="runA">
+        <option v-for="r in index.runs" :key="r.name" :value="r.name">{{ r.label }}</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" v-model="compare"> Compare with</label>
+    <label v-if="compare">
+      <select v-model="runB" aria-label="Second run">
+        <option v-for="r in index.runs" :key="r.name" :value="r.name">{{ r.label }}</option>
+      </select>
+    </label>
+    <label>Colour
+      <select v-model="colorBy">
+        <option value="part">By part</option>
+        <option value="disp">Displacement |u|</option>
+      </select>
+    </label>
+    <label>Displacement scale
+      <select v-model.number="scale">
+        <option v-for="s in scales" :key="s" :value="s">{{ s === 1 ? 'True scale' : '×' + s }}</option>
+      </select>
+    </label>
+    <label class="check"><input type="checkbox" v-model="showSlab"> Slab</label>
+    <label class="check"><input type="checkbox" v-model="showBolts"> Connection bolts</label>
+    <label class="check"><input type="checkbox" v-model="showStuds"> Slab studs</label>
+    <label class="check"><input type="checkbox" v-model="showSupports"> Column faces and seats</label>
+    <span class="views">View
+      <button v-for="v in views" :key="v.key" type="button" @click="setView(v.key)">{{ v.label }}</button>
+    </span>
+  </section>
+
+  <p class="note" v-if="error">{{ error }}</p>
+  <section class="stage" :class="{ two: compare, rows: compare && narrow }">
+    <div class="canvas-wrap" ref="wrap">
+      <canvas ref="canvas" aria-label="3D view of the deformed floor framing"></canvas>
+      <div v-for="(p, i) in panes" :key="i" class="pane" :style="paneStyle(i)">
+        <div class="pane-head" v-if="p.run">
+          <b>{{ p.run.label }}</b>
+          <span class="chip" :class="readingClass(p.run.reading)">{{ p.run.reading }}</span>
+          <div class="small">{{ p.frameText }}</div>
+          <div class="note" v-if="p.run.col79 === 'flexible'">Column 79 moves in this run (S5); its plates are drawn where they start.</div>
+          <div class="note" v-if="p.afterLast">Last snapshot; the run goes on to {{ p.endText }}.</div>
+        </div>
+        <div class="pane-loading" v-else>Loading&hellip;</div>
+        <div class="scale-badge" :class="{ warn: scale !== 1 }">{{ scale === 1 ? 'True scale' : 'Displacements ×' + scale + ', not true scale' }}</div>
+      </div>
+      <svg class="north" viewBox="-26 -26 52 52" aria-hidden="true">
+        <circle r="24"></circle>
+        <g :transform="'rotate(' + northDeg + ')'"><path class="n" d="M0,-12 L4,0 L-4,0 Z"></path><path class="s" d="M0,12 L4,0 L-4,0 Z"></path>
+          <text y="-15" text-anchor="middle">N</text></g>
+      </svg>
+    </div>
+  </section>
+
+  <section class="timeline">
+    <button type="button" class="play" @click="togglePlay" :aria-label="playing ? 'Pause' : 'Play'">{{ playing ? 'Pause' : 'Play' }}</button>
+    <input type="range" min="0" :max="Math.max(times.length - 1, 0)" step="1" v-model.number="ti" aria-label="Snapshot">
+    <span class="tlabel">t = {{ tNow.toFixed(2) }} s</span>
+  </section>
+
+  <section class="legend-row">
+    <div class="legend" v-if="colorBy === 'part'">
+      <span v-for="p in partLegend" :key="p.name"><i :style="{ background: p.color }"></i>{{ p.name }}</span>
+      <span v-if="showBolts || showStuds"><i class="dot" :style="{ background: boltColors.intact }"></i>{{ boltWord }} intact</span>
+      <span v-if="showBolts || showStuds"><i class="dot" :style="{ background: boltColors.broken }"></i>&#x2715; {{ boltWord }} failed</span>
+    </div>
+    <div class="legend" v-else>
+      <span>|u| (in.)</span>
+      <span class="ramp"><i :style="{ background: rampCss }"></i><em>0</em><em>{{ umaxShown.toFixed(1) }}</em></span>
+      <span class="muted small">Same range in both views; true displacement, whatever the drawing scale.</span>
+      <span v-if="showBolts || showStuds"><i class="dot" :style="{ background: boltColors.intact }"></i>{{ boltWord }} intact</span>
+      <span v-if="showBolts || showStuds"><i class="dot" :style="{ background: boltColors.broken }"></i>&#x2715; {{ boltWord }} failed</span>
+    </div>
+  </section>
+
+  <section class="events" v-if="panes[0].run">
+    <div v-for="(p, i) in panes" :key="'ev' + i">
+      <span class="small"><b v-if="compare">{{ p.run && p.run.label }}. </b>
+        <span class="muted">{{ p.diffText ? 'Differs from the baseline: ' + p.diffText + '.' : 'The reported baseline.' }} Events (beam temperature):</span></span>
+      <button v-for="e in p.events" :key="e.key" type="button" class="ev" @click="jumpTo(e.t)"
+              :title="'Go to the last snapshot at or before t = ' + e.t.toFixed(2) + ' s'">{{ e.label }} {{ e.T.toFixed(0) }} &deg;C</button>
+    </div>
+  </section>
+
+  <section class="trace">
+    <div class="trace-head">
+      <label>Trace
+        <select v-model="quantity">
+          <option v-for="q in quantities" :key="q.key" :value="q.key">{{ q.label }}</option>
+        </select>
+      </label>
+      <span class="legend small" v-if="compare">
+        <span><i :style="{ background: seriesColors[0] }"></i>{{ panes[0].run && panes[0].run.label }}</span>
+        <span><i :style="{ background: seriesColors[1] }"></i>{{ panes[1].run && panes[1].run.label }}</span>
+      </span>
+    </div>
+    <svg ref="svg" class="chart" :style="{ height: H + 'px' }" @mousemove="hover" @mouseleave="hoverT = null" @click="clickTrace"
+         role="img" :aria-label="qInfo.label + ' against time'">
+      <rect v-for="(s, i) in noSnap" :key="'ns' + i" :x="s.x" :y="M.t" :width="s.w" :height="H - M.t - M.b" class="nosnap"></rect>
+      <g class="grid">
+        <line v-for="y in yTicks" :key="'y' + y" :x1="M.l" :x2="W - M.r" :y1="sy(y)" :y2="sy(y)"></line>
+      </g>
+      <g class="axis">
+        <text v-for="y in yTicks" :key="'yt' + y" :x="M.l - 6" :y="sy(y) + 4" text-anchor="end">{{ fmt(y) }}</text>
+        <text v-for="x in xTicks" :key="'xt' + x" :x="sx(x)" :y="H - M.b + 16" text-anchor="middle">{{ x }}</text>
+        <text :x="W - M.r" :y="H - 4" text-anchor="end">time (s); heating starts at 1.1 s</text>
+      </g>
+      <g v-if="qInfo.threshold != null">
+        <line class="thr" :x1="M.l" :x2="W - M.r" :y1="sy(qInfo.threshold)" :y2="sy(qInfo.threshold)"></line>
+        <text class="thr-l" :x="M.l + 4" :y="sy(qInfo.threshold) - 4">walk-off, {{ qInfo.threshold }} in.</text>
+      </g>
+      <path v-for="(p, i) in paths" :key="'p' + i" :d="p" class="line" :style="{ stroke: seriesColors[i] }"></path>
+      <line class="cursor" :x1="sx(tNow)" :x2="sx(tNow)" :y1="M.t" :y2="H - M.b"></line>
+      <g v-if="hoverInfo">
+        <line class="cross" :x1="hoverInfo.x" :x2="hoverInfo.x" :y1="M.t" :y2="H - M.b"></line>
+        <circle v-for="(v, i) in hoverInfo.vals" :key="'hc' + i" :cx="hoverInfo.x" :cy="sy(v.v)" r="4" :style="{ fill: seriesColors[i] }" class="hdot"></circle>
+      </g>
+    </svg>
+    <div class="tip" v-if="hoverInfo" :style="{ left: hoverInfo.px + 'px' }">
+      <b>t = {{ hoverInfo.t.toFixed(2) }} s</b>
+      <div v-for="(v, i) in hoverInfo.vals" :key="'tv' + i"><i :style="{ background: seriesColors[i] }"></i>{{ v.name }}: {{ fmt(v.v) }} {{ qInfo.unit }}, beam {{ v.T.toFixed(0) }} &deg;C</div>
+      <div class="muted">Click to go to the last snapshot before this time</div>
+    </div>
+    <p class="small muted">Shaded: no 3D snapshot covers this period. The trace is every monitor step of the run
+      (<code>rows</code> in the run output); the 3D view shows the last snapshot at or before the cursor.</p>
+  </section>
+
+  <details class="about">
+    <summary>What this view does and does not show</summary>
+    <ul>
+      <li>Shapes only. The run outputs keep node positions at the snapshots and nothing else: no stress, plastic strain or
+        temperature field. The mesh is rebuilt from each run's configuration and matches the saved first snapshot.</li>
+      <li>Snapshots are taken at each 50 &deg;C of beam temperature and at each column 79 bolt failure, so the 700 &deg;C
+        hold has none. Where a run walks off during the hold, only the trace shows it.</li>
+      <li>Displacements are rounded to {{ resText }} in. for this page.</li>
+      <li>Shells are drawn at their mid-surface; plate thickness is not drawn. Column faces, seats and side plates are the
+        rigid contact planes of the model, not meshed columns.</li>
+      <li>Axes: x east, y north (column 79 to column 44 along the girder), z up; inches.</li>
+    </ul>
+  </details>
+</div>
+
+<script>window.WTC7 = { geom: {}, runs: {}, index: null };</script>
+<script src="vendor/vue-3.5.13.global.prod.js"></script>
+<script src="vendor/three-0.147.0.min.js"></script>
+<script src="vendor/OrbitControls-0.147.0.js"></script>
+<script src="data/index.js"></script>
+<script src="viewer.js"></script>
+</body>
+</html>
