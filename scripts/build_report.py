@@ -63,6 +63,17 @@ def shell_runs():
     return {f.stem: load_json(f) for f in sorted(SHELL.glob("*.json"))}
 
 
+def viewer_runs():
+    idx = OUT / "viewer" / "data" / "index.js"
+    if not idx.exists():
+        return set()
+    txt = idx.read_text().strip()
+    m = re.search(r"WTC7\.index\s*=\s*(\{.*\})\s*;?\s*$", txt, re.S)
+    if not m:
+        return set()
+    return {r["name"] for r in json.loads(m.group(1)).get("runs", [])}
+
+
 def run_status():
     from run_shell import FOLLOW, MESH, NIST, NIST_RESTORE, P1, P1_HALF, P2
     done = {f.stem for f in SHELL.glob("*.json")}
@@ -161,18 +172,179 @@ code{font:12.5px ui-monospace,Menlo,Consolas,monospace;background:var(--codebg);
 .chip.bad{background:var(--badbg);color:var(--bad);border-color:var(--bad)}.chip.info{color:var(--accent);border-color:var(--accent)}
 a{color:var(--accent)}ol.find li,ul.tight li{margin:4px 0}
 .small{font-size:13px;color:var(--muted)}
-.theme{float:right;font:12px system-ui,sans-serif;background:none;border:1px solid var(--line);color:var(--fg);border-radius:4px;padding:3px 8px;cursor:pointer}
+.theme,.bar-btn{font:12px system-ui,sans-serif;background:var(--bg);border:1px solid var(--line);color:var(--fg);border-radius:4px;padding:4px 9px;cursor:pointer;text-decoration:none;white-space:nowrap}
+.theme:hover,.bar-btn:hover{border-color:var(--accent);color:var(--accent)}
+.site-bar{position:sticky;top:0;z-index:20;display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:48px;padding:6px 16px;background:var(--card);border-bottom:1px solid var(--line);font:13px/1.3 system-ui,sans-serif}
+.brand{display:flex;align-items:baseline;gap:8px;min-width:0}
+.brand b{font-size:14px;white-space:nowrap}
+.brand span{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mode-tabs{display:inline-flex;background:var(--th);border:1px solid var(--line);border-radius:6px;padding:2px;gap:2px}
+.mode-tabs button{border:0;background:transparent;color:var(--muted);font:inherit;font-size:12.5px;padding:4px 10px;border-radius:4px;cursor:pointer;white-space:nowrap}
+.mode-tabs button:hover{color:var(--fg)}
+.mode-tabs button.active{background:var(--card);color:var(--fg);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.bar-actions{display:flex;align-items:center;gap:8px}
+body.mode-report .viewer-pane,body.mode-report .splitter{display:none}
+body.mode-report nav{top:68px;max-height:calc(100vh - 88px)}
+body.mode-split{overflow:hidden}
+body.mode-split .shell{display:flex;height:calc(100vh - 48px)}
+body.mode-split .report-pane{flex:0 0 var(--split,46%);min-width:320px;overflow-y:auto;scroll-behavior:smooth}
+body.mode-split .wrap{grid-template-columns:1fr;padding:18px 22px;gap:0;max-width:none}
+body.mode-split nav{position:static;max-height:none;display:flex;flex-wrap:wrap;gap:4px 12px;padding-bottom:10px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+body.mode-split nav b{width:100%}
+body.mode-split nav .l2{display:none}
+body.mode-split .splitter{width:6px;cursor:col-resize;background:var(--line);flex:0 0 6px;transition:background .15s}
+body.mode-split .splitter:hover,body.mode-split .splitter.dragging,body.mode-split .splitter:focus-visible{background:var(--accent);outline:none}
+body.mode-split .viewer-pane{flex:1 1 0;min-width:320px;display:flex;flex-direction:column;overflow:hidden}
+body.mode-viewer{overflow:hidden}
+body.mode-viewer .report-pane,body.mode-viewer .splitter{display:none}
+body.mode-viewer .viewer-pane{display:flex;flex-direction:column;width:100%;height:calc(100vh - 48px)}
+.preset-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 12px;background:var(--card);border-bottom:1px solid var(--line);font:12.5px/1.3 system-ui,sans-serif}
+.preset-bar .muted{color:var(--muted);margin-right:2px}
+.preset-btn{font:inherit;background:var(--bg);color:var(--fg);border:1px solid var(--line);border-radius:14px;padding:3px 10px;cursor:pointer;white-space:nowrap}
+.preset-btn:hover{border-color:var(--accent);color:var(--accent)}
+.preset-btn.active{background:var(--accent);border-color:var(--accent);color:#fff}
+#viewer-frame{flex:1;width:100%;border:0;background:var(--bg)}
+.v3d{display:inline-block;margin-left:5px;padding:0 5px;border-radius:4px;border:1px solid var(--accent);font:600 10.5px/1.5 system-ui,sans-serif;text-decoration:none;vertical-align:1px}
+.v3d:hover{background:var(--accent);color:#fff}
 details{margin:10px 0}summary{cursor:pointer;font:14px system-ui,sans-serif;color:var(--accent)}
+@media (max-width:1100px){
+  .site-bar{flex-wrap:wrap;padding:6px 12px}
+  .brand span{display:none}
+  body.mode-split .shell{flex-direction:column;height:calc(100vh - 48px)}
+  body.mode-split .report-pane{flex:0 0 46%;min-width:0}
+  body.mode-split .splitter{display:none}
+  body.mode-split .viewer-pane{flex:1 1 54%;min-width:0;border-top:1px solid var(--line)}
+}
 @media (max-width:900px){.wrap{grid-template-columns:1fr;padding:16px}nav{position:static;max-height:none;border-bottom:1px solid var(--line);padding-bottom:10px}}
-@media print{nav,.theme{display:none}.wrap{display:block}body{font-size:12pt}}
+@media print{.site-bar,.viewer-pane,.splitter,nav,.theme,.v3d{display:none!important}body{overflow:visible!important;height:auto!important;font-size:12pt}.shell,.report-pane{display:block!important;height:auto!important;overflow:visible!important}.wrap{display:block;padding:0}}
 """
 
 JS = """
-(function(){var k='wtc7-theme';var b=document.getElementById('theme');function set(t){if(t){document.documentElement.setAttribute('data-theme',t)}
-else{document.documentElement.removeAttribute('data-theme')}}try{set(localStorage.getItem(k))}catch(e){}
-b.addEventListener('click',function(){var cur=document.documentElement.getAttribute('data-theme');
-var dark=cur?cur==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;var nt=dark?'light':'dark';set(nt);
-try{localStorage.setItem(k,nt)}catch(e){}});})();
+(function(){
+  var k='wtc7-theme', b=document.getElementById('theme'), frame=document.getElementById('viewer-frame');
+  var openBtn=document.getElementById('open-viewer'), splitter=document.getElementById('splitter');
+  var modeBtns=document.querySelectorAll('.mode-tabs button[data-mode]');
+  var presetBtns=document.querySelectorAll('.preset-btn[data-viewer]');
+  var curHash='a=check_rate_half', started=false, loaded=false, curMode=null;
+
+  function curTheme(){ return document.documentElement.getAttribute('data-theme')||''; }
+  function sendTheme(){
+    if(loaded && frame && frame.contentWindow){
+      try{ frame.contentWindow.postMessage({type:'wtc7-theme',theme:curTheme()},'*'); }catch(e){}
+    }
+  }
+  function setTheme(t){
+    if(t==='light'||t==='dark'){ document.documentElement.setAttribute('data-theme',t); }
+    else{ document.documentElement.removeAttribute('data-theme'); }
+    sendTheme();
+  }
+  try{ setTheme(localStorage.getItem(k)); }catch(e){}
+  if(b){
+    b.addEventListener('click',function(){
+      var cur=curTheme();
+      var dark=cur?cur==='dark':window.matchMedia('(prefers-color-scheme: dark)').matches;
+      var nt=dark?'light':'dark';
+      setTheme(nt);
+      try{ localStorage.setItem(k,nt); }catch(e){}
+    });
+  }
+
+  function ensureFrame(){
+    if(!frame) return;
+    if(!started){
+      frame.src='viewer/index.html?embed=1#'+curHash;
+      started=true;
+    }
+  }
+  if(frame){
+    frame.addEventListener('load',function(){
+      loaded=true;
+      sendTheme();
+      try{ frame.contentWindow.postMessage({type:'wtc7-load',hash:curHash},'*'); }catch(e){}
+    });
+  }
+
+  function setMode(m){
+    if(m!=='report'&&m!=='split'&&m!=='viewer') m='report';
+    curMode=m;
+    document.body.classList.remove('mode-report','mode-split','mode-viewer');
+    document.body.classList.add('mode-'+m);
+    modeBtns.forEach(function(btn){
+      var on=btn.getAttribute('data-mode')===m;
+      btn.classList.toggle('active',on);
+      btn.setAttribute('aria-selected',on?'true':'false');
+    });
+    if(m==='split'||m==='viewer') ensureFrame();
+  }
+  modeBtns.forEach(function(btn){
+    btn.addEventListener('click',function(){ setMode(btn.getAttribute('data-mode')); });
+  });
+
+  function updatePresetUI(hash){
+    presetBtns.forEach(function(btn){
+      btn.classList.toggle('active',btn.getAttribute('data-viewer')===hash);
+    });
+    if(openBtn) openBtn.href='viewer/index.html#'+hash;
+  }
+
+  function loadViewer(hash){
+    curHash=hash.replace(/^#/,'');
+    updatePresetUI(curHash);
+    if(curMode==='report'){
+      setMode(window.innerWidth>=1100?'split':'viewer');
+    }else{
+      ensureFrame();
+    }
+    if(loaded && frame && frame.contentWindow){
+      try{ frame.contentWindow.postMessage({type:'wtc7-load',hash:curHash},'*'); }catch(e){}
+    }
+  }
+
+  document.addEventListener('click',function(e){
+    var el=e.target.closest('[data-viewer]');
+    if(!el) return;
+    if(e.metaKey||e.ctrlKey||e.shiftKey||e.altKey||e.button!==0) return;
+    e.preventDefault();
+    loadViewer(el.getAttribute('data-viewer'));
+  });
+
+  if(splitter && frame){
+    var dragging=false;
+    function setSplit(pct){
+      pct=Math.max(28,Math.min(70,pct));
+      document.documentElement.style.setProperty('--split',pct.toFixed(2)+'%');
+    }
+    splitter.addEventListener('pointerdown',function(e){
+      dragging=true;
+      splitter.classList.add('dragging');
+      frame.style.pointerEvents='none';
+      splitter.setPointerCapture(e.pointerId);
+    });
+    splitter.addEventListener('pointermove',function(e){
+      if(!dragging) return;
+      setSplit((e.clientX/window.innerWidth)*100);
+    });
+    function endDrag(e){
+      if(!dragging) return;
+      dragging=false;
+      splitter.classList.remove('dragging');
+      frame.style.pointerEvents='';
+      try{ splitter.releasePointerCapture(e.pointerId); }catch(err){}
+    }
+    splitter.addEventListener('pointerup',endDrag);
+    splitter.addEventListener('pointercancel',endDrag);
+    splitter.addEventListener('keydown',function(e){
+      var cur=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--split'))||46;
+      if(e.key==='ArrowLeft'){ e.preventDefault(); setSplit(cur-3); }
+      else if(e.key==='ArrowRight'){ e.preventDefault(); setSplit(cur+3); }
+    });
+  }
+
+  var qm=new URLSearchParams(location.search).get('mode');
+  var initMode=(qm==='report'||qm==='split'||qm==='viewer')?qm:(window.innerWidth>=1100?'split':'report');
+  updatePresetUI(curHash);
+  setMode(initMode);
+})();
 """
 
 
@@ -194,6 +366,11 @@ def build():
         shutil.copy(crops / c, ASSETS / c)
 
     runs = shell_runs()
+    vruns = viewer_runs()
+    def run_cell(n):
+        if n in vruns:
+            return code(n) + f'<a class="v3d" href="viewer/index.html#a={E(n)}" data-viewer="a={E(n)}" title="View {E(n)} in 3D">3D</a>'
+        return code(n)
     status = run_status()
     druns = drawings_runs()
     dig = digitized_summary()
@@ -434,10 +611,10 @@ result across the 700 C line, so the condition is the combination as a whole. Fu
 Sections 4 and 5.</p>""")
         if (OUT / "viewer" / "data" / "index.js").exists():
             v = "viewer/index.html#"
-            S.append(f"""<p>Deformed shapes in 3D, with the column 79 history alongside: <a href="{v}a=check_rate_half">the
-viewer</a>. For example: <a href="{v}a=nist_replica&amp;b=nist_face_plates">the NIST replica against the replica with the drawn
-face and side plates</a>, <a href="{v}a=nist_replica&amp;b=nist_mu0.3">sliding against buckling and twisting off</a>, and
-<a href="{v}a=favourable_dump&amp;b=favourable_s6">the combined run against its Section 6 repeat</a>. The viewer shows node
+            S.append(f"""<p>Deformed shapes in 3D, with the column 79 history alongside: <a href="{v}a=check_rate_half" data-viewer="a=check_rate_half">the
+viewer</a>. For example: <a href="{v}a=nist_replica&amp;b=nist_face_plates" data-viewer="a=nist_replica&amp;b=nist_face_plates">the NIST replica against the replica with the drawn
+face and side plates</a>, <a href="{v}a=nist_replica&amp;b=nist_mu0.3" data-viewer="a=nist_replica&amp;b=nist_mu0.3">sliding against buckling and twisting off</a>, and
+<a href="{v}a=favourable_dump&amp;b=favourable_s6" data-viewer="a=favourable_dump&amp;b=favourable_s6">the combined run against its Section 6 repeat</a>. The viewer shows node
 positions only, at each 50 C of beam temperature and at each column 79 bolt failure, so the 700 C hold is not in 3D; it opens
 from the repository without a server (<code>scripts/export_viewer.py</code>).</p>""")
         rows_ = []
@@ -447,7 +624,7 @@ from the repository without a server (<code>scripts/export_viewer.py</code>).</p
             lost = ", ".join(f"{k.split('_')[0]} {ev[k]['T_beam']:.0f} C" for k in e2)
             if r["status"] == "diverged":
                 lost += ", then numerical stop" if e2 else "numerical stop"
-            rows_.append((code(nme), f"{r['config']['rate']:g}", r["config"]["mesh"], T(ev, "first_stud"),
+            rows_.append((run_cell(nme), f"{r['config']['rate']:g}", r["config"]["mesh"], T(ev, "first_stud"),
                           T(ev, "E1_g79_all_bolts"), T(ev, "E3_g44_all_bolts"), T(ev, "E4_beam_buckled"),
                           T(ev, "E5_girder_buckled"), chip(lost, "bad") if lost else chip("none", "ok"),
                           f"{max(x['lat79'] for x in h):.2f}", f"{-min(x['ax79'] for x in h):.2f}",
@@ -532,7 +709,7 @@ one drawn feature back. The plates cannot go back alone, because at 14.6 deg the
             return f"{x[0]['lat79']:.2f}" if x else "-"
         S.append(table(["Run", "Changed back", "West movement at 600 C (in.)", "Largest girder bow (in.)", "First E2, E2r or E2s",
                         "Reading"],
-                       [(code(n), E(what), lat_at(runs[n], 600.0), f"{max(abs(x['girder_bow']) for x in runs[n]['rows']):.1f}",
+                       [(run_cell(n), E(what), lat_at(runs[n], 600.0), f"{max(abs(x['girder_bow']) for x in runs[n]['rows']):.1f}",
                          e2_txt(runs[n]), E(classify(runs[n]))) for n, what in nr]))
         S.append("""<p>The holes change nothing. The drawn face slows the sliding (about 1 in. per 100 C against 1.6 at 14.6 deg)
 and delays walk-off past 600 C, but not past 700 C. Friction 0.3 stops the sliding, but the girder then buckles sideways and
@@ -652,10 +829,38 @@ effects is the half-against-quarter-rate agreement.</p>""")
            ("next", "10. Next steps", 1), ("app", "Appendix A. Inputs", 1), ("files", "Appendix B. Files", 1)]
     navh = "".join(f'<a class="l{lv}" href="#{a}">{E(t)}</a>' for a, t, lv in nav)
     page = f"""<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>WTC 7 Phase 1 forensic report</title>
-<style>{CSS}</style></head><body><div class="wrap"><nav><b>Contents</b>{navh}</nav><main>
-<button class="theme" id="theme" type="button">Light / dark</button>{''.join(S)}
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>WTC 7 Phase 1 — Forensic Report &amp; 3D Viewer</title>
+<style>{CSS}</style></head><body class="mode-report">
+<header class="site-bar">
+  <div class="brand"><b>WTC 7 Phase 1</b><span>Forensic Report &amp; 3D Viewer</span></div>
+  <div class="mode-tabs" role="tablist" aria-label="View layout">
+    <button type="button" role="tab" data-mode="report" aria-selected="false">Report</button>
+    <button type="button" role="tab" data-mode="split" aria-selected="false">Split</button>
+    <button type="button" role="tab" data-mode="viewer" aria-selected="false">3D Viewer</button>
+  </div>
+  <div class="bar-actions">
+    <button class="theme" id="theme" type="button">Light / dark</button>
+    <a class="bar-btn" id="open-viewer" href="viewer/index.html#a=check_rate_half" target="_blank" rel="noopener">Open 3D &#x2197;</a>
+  </div>
+</header>
+<div class="shell">
+  <div class="report-pane" id="report-pane">
+    <div class="wrap"><nav><b>Contents</b>{navh}</nav><main>
+{''.join(S)}
 <p class="small" style="margin-top:40px">Built {built}. Repository state: see <code>git log</code>.</p></main></div>
+  </div>
+  <div class="splitter" id="splitter" role="separator" aria-orientation="vertical" aria-label="Resize report and 3D viewer" tabindex="0"></div>
+  <section class="viewer-pane" id="viewer-pane" aria-label="Interactive 3D model viewer">
+    <div class="preset-bar">
+      <span class="muted">Compare:</span>
+      <button type="button" class="preset-btn" data-preset="1" data-viewer="a=check_rate_half">Baseline</button>
+      <button type="button" class="preset-btn" data-preset="1" data-viewer="a=nist_replica&amp;b=nist_face_plates">NIST replica vs. side plates</button>
+      <button type="button" class="preset-btn" data-preset="1" data-viewer="a=nist_replica&amp;b=nist_mu0.3">Sliding vs. twist-off</button>
+      <button type="button" class="preset-btn" data-preset="1" data-viewer="a=favourable_dump&amp;b=favourable_s6">Combined vs. repeat</button>
+    </div>
+    <iframe id="viewer-frame" title="WTC 7 detailed shell model 3D viewer" data-src="viewer/index.html?embed=1#a=check_rate_half"></iframe>
+  </section>
+</div>
 <script>{JS}</script></body></html>"""
     (OUT / "index.html").write_text(page)
     return OUT / "index.html"

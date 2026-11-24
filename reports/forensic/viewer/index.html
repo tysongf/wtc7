@@ -4,6 +4,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>WTC 7 detailed model viewer</title>
+<script>
+(function(){
+  try {
+    if (new URLSearchParams(location.search).get("embed") === "1" || window.self !== window.top) {
+      document.documentElement.classList.add("embedded");
+    }
+    var t = localStorage.getItem("wtc7-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  } catch (e) {}
+})();
+</script>
 <link rel="stylesheet" href="viewer.css">
 </head>
 <body>

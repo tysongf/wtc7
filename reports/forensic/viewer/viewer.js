@@ -423,8 +423,10 @@
       const ro = new ResizeObserver(() => {
         const el = this.$refs.canvas;
         requestAnimationFrame(() => { this.narrow = R.rows = this.$refs.wrap.clientWidth < 700; R.need = true; });
-        R.renderer.setSize(el.clientWidth, el.clientHeight, false);
-        R.need = true;
+        if (el.clientWidth > 0 && el.clientHeight > 0) {
+          R.renderer.setSize(el.clientWidth, el.clientHeight, false);
+          R.need = true;
+        }
       });
       ro.observe(this.$refs.wrap);
       const fit = () => { this.W = Math.max(320, Math.round(this.$refs.svg.clientWidth)); };
@@ -434,6 +436,26 @@
       const bump = () => { this.theme++; };
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", bump);
       new MutationObserver(bump).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+      window.addEventListener("message", (ev) => {
+        const msg = ev.data;
+        if (!msg || typeof msg !== "object") return;
+        if (msg.type === "wtc7-theme") {
+          if (msg.theme === "light" || msg.theme === "dark") {
+            document.documentElement.setAttribute("data-theme", msg.theme);
+          } else {
+            document.documentElement.removeAttribute("data-theme");
+          }
+        } else if (msg.type === "wtc7-load" && typeof msg.hash === "string") {
+          const p = new URLSearchParams(msg.hash.replace(/^#/, ""));
+          if (p.has("a")) this.runA = pick(p.get("a"), this.runA);
+          this.compare = p.has("b");
+          if (p.has("b")) this.runB = pick(p.get("b"), this.runB);
+          this.colorBy = p.get("c") === "disp" ? "disp" : "part";
+          this.scale = this.scales.includes(+p.get("s")) ? +p.get("s") : 1;
+          const v = p.get("v");
+          if (v && VIEWS.some((x) => x.key === v)) this.setView(v);
+        }
+      });
       this.mountedThree = true;
       this.refresh();
     },
