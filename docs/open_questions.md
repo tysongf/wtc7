@@ -132,3 +132,18 @@ its baseline, as NIST did, and runs them as drawn as a sensitivity case (A97).
 
 **Q22. Camber.** E12/13 gives 1 in. camber for the girder and 1 3/4 to 2 1/4 in. for the beams. NIST
 does not mention camber; neither model includes it.
+
+## Raised by the secondary sources (2026-11-02)
+
+**Q23. Room from the girder end to the west side plate at column 79.** The University of Alaska
+Fairbanks report (2020, p. 79) gives 3.678 in. from the A2001 west flange tip to the west side
+plate; `sources/drawings/READING.md` infers 4.15 in. from 9114, 1091 and E12/13, and the detailed
+model's girder end first bears on the plate after about 3.98 in. of sideways movement. UAF does not
+discuss the girder's 4.17 deg skew, so the two figures may be measured in different directions. Not
+reconciled. It matters because the side plates are what hold the girder in the Phase 1 runs.
+
+**Q24. The connections of A2002 and the W36x135 at column 79.** The AE911Truth request for
+correction (2020, p. 25) describes them as 3/8 in. knife brackets "per Frankel drawing 1091";
+`READING.md`'s reading of 1091 Section A-A shows A2002 on two angles L4x3x3/8 and the W36x135 on
+bent plates A778/B778. Possibly a different floor or a different reading; to be rechecked against
+1091 before Phase 3 uses either.
