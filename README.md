@@ -19,6 +19,24 @@ material. Phases are gated: Phase 2 starts only when Phase 1 passes its gate
 
 See `docs/phase1_gate.md` and `docs/writeup.md`.
 
+## QuickStart
+
+### View the report and 3D simulation
+
+No Python setup or `npm install` is needed to browse the results (requires only Node/npm and Python 3):
+
+- `npm run report` — open the Phase 1 forensic report (`reports/forensic/index.html`) directly in your browser.
+- `npm run viewer` — open the interactive 3D simulation viewer (`reports/forensic/viewer/index.html`) directly in your browser.
+- `npm start` (or `npm run serve`) — start a local web server serving both at `http://127.0.0.1:8765/` (report) and `http://127.0.0.1:8765/viewer/` (3D viewer).
+
+### Set up Python, run verification tests, or rebuild reports (optional)
+
+- `npm run setup` — create `.venv` and install Python dependencies.
+- `npm test` — run the solver and material-curve verification test suite.
+- `npm run hand-calcs` — re-run the Phase 1 hand calculations (`results/phase1/hand_calcs.md`).
+- `npm run build` — re-export 3D viewer data (`build:viewer`) and rebuild the forensic report (`build:report`).
+- `npm run verify:sources` — verify SHA-256 checksums of archived NIST sources and drawings.
+
 ## Summary of findings (Phase 1)
 
 Phase 1 tests NIST NCSTAR 1-9 §8.8 (the Floor 13 northeast partial-floor model around girder A2001 between columns 44 and 79) against published documents and FOIA-released Frankel shop/erection and Cantor structural drawings.
@@ -61,6 +79,7 @@ Phase 1 tests NIST NCSTAR 1-9 §8.8 (the Floor 13 northeast partial-floor model 
 | `data/nist/` | Appendix E stress-strain tables extracted from NCSTAR 1-9 |
 | `sources/` | Archived copies of every downloaded source (NIST reports, errata, FAQ page, drawing scans), checksums (`SHA256SUMS`), extracted text and figures; see `sources/README.md` |
 | `sources/drawings/` | Readings of the Frankel and Cantor drawings (`READING.md`), their sources and checksums (`SOURCES.md`), crops, and the scans themselves (`raw/`) |
+| `package.json` | Convenience npm scripts for viewing, testing and rebuilding reports |
 
 ## Software
 
