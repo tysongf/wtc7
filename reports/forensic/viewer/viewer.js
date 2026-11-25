@@ -1,33 +1,32 @@
-// Detailed-model viewer: deformed shapes from scripts/export_viewer.py output (data/*.js).
-// Vue holds the controls and the trace; Three draws one canvas split into one or two viewports that
-// share a camera. Mesh arrays live outside Vue so they are not made reactive.
+// Detailed-model 3D viewer mounted natively on #viewer-app inside reports/forensic/index.html.
+// Vue holds controls and time-history traces; Three.js draws one canvas split into one or two viewports
+// sharing a camera, with 3D extruded Column 79 / side cover plates / seats and a 6.25 in. walk-off marker.
 (function () {
   "use strict";
   const W7 = window.WTC7;
-  const H = 260, M = { l: 52, r: 14, t: 12, b: 40 };
-  // sequential blue, steps 100 to 700 (dataviz reference palette)
+  if (!W7 || !W7.index || !document.getElementById("viewer-app")) return;
+  const DATA_DIR = W7.dataDir || "viewer/data/";
+  const H = 230, M = { l: 50, r: 14, t: 12, b: 36 };
   const BLUE = ["#cde2fb", "#b7d3f6", "#9ec5f4", "#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6", "#256abf",
                 "#1c5cab", "#184f95", "#104281", "#0d366b"];
   const EVENTS = [
-    ["E1_g79_all_bolts", "E1 column 79 bolts gone"], ["E3_g44_all_bolts", "E3 column 44 bolts gone"],
+    ["E1_g79_all_bolts", "E1 col 79 bolts gone"], ["E3_g44_all_bolts", "E3 col 44 bolts gone"],
     ["E4_beam_buckled", "E4 beam buckles"], ["E5_girder_buckled", "E5 girder buckles"],
-    ["first_fin_bolt", "First fin bolt"], ["Q12_west_plate_bearing", "Bears on west plate"],
+    ["first_fin_bolt", "First fin bolt"], ["Q12_west_plate_bearing", "Hits west plate"],
     ["E2r_rocking_79", "E2r twist limit"], ["E2_walkoff_79", "E2 walk-off"], ["E2_support_lost_79", "E2s support lost"],
   ];
   const QUANTITIES = [
     { key: "lat79", label: "Girder end at column 79: movement west (in.)", unit: "in.", walk: true },
-    { key: "ax79", label: "Girder end at column 79: movement along the girder, + away from the column (in.)", unit: "in." },
+    { key: "ax79", label: "Girder end at column 79: movement along girder, + away (in.)", unit: "in." },
     { key: "dz79", label: "Girder end at column 79: vertical movement (in.)", unit: "in." },
-    { key: "twist79", label: "Girder end at column 79: twist, + top toward west (deg)", unit: "deg" },
+    { key: "twist79", label: "Girder end at column 79: twist, + top west (deg)", unit: "deg" },
   ];
   const VIEWS = [
-    { key: "col79", label: "Column 79" }, { key: "end", label: "Along the girder" }, { key: "below", label: "From below" },
-    { key: "floor", label: "Whole floor" }, { key: "plan", label: "Plan" },
+    { key: "col79", label: "Column 79" }, { key: "end", label: "Along girder" }, { key: "below", label: "From below" },
+    { key: "floor", label: "Whole floor" }, { key: "plan", label: "Top-down plan" },
   ];
-  const PART_LABEL = { girder: "Girder", stiffener: "Girder", beam: "Floor beams", fin: "Fin plates", slab: "Slab" };
   const PART_VAR = { girder: "--s1", stiffener: "--s1", beam: "--s2", fin: "--s3", slab: "--neutral" };
 
-  // ---------------------------------------------------------------- loading and decoding
   function script(src) {
     return new Promise((resolve, reject) => {
       const s = document.createElement("script");
@@ -48,7 +47,7 @@
 
   function geometry(key) {
     if (!geoms[key]) geoms[key] = (async () => {
-      await script("data/geom_" + key + ".js");
+      await script(DATA_DIR + "geom_" + key + ".js");
       const g = W7.geom[key];
       const x0 = new Float32Array((await gunzip(g.x0)).buffer);
       const cb = (await gunzip(g.conn)).buffer;
@@ -60,8 +59,7 @@
       for (let e = 0; e < g.ne; e++) {
         const a = conn[4 * e], b = conn[4 * e + 1], c = conn[4 * e + 2], d = conn[4 * e + 3];
         (pid[e] === slabId ? slab : steel).push(a, b, c, a, c, d);
-        if (pid[e] !== slabId) nodePart[a] = nodePart[b] = nodePart[c] = nodePart[d] = pid[e];
-        else nodePart[a] = nodePart[b] = nodePart[c] = nodePart[d] = slabId;
+        nodePart[a] = nodePart[b] = nodePart[c] = nodePart[d] = pid[e];
       }
       return { key, nn: g.nn, parts: g.parts, x0, nodePart, idxSteel: new Uint32Array(steel), idxSlab: new Uint32Array(slab) };
     })();
@@ -70,7 +68,7 @@
 
   function loadRun(name) {
     if (!runs[name]) runs[name] = (async () => {
-      await script("data/" + encodeURIComponent(name) + ".js");
+      await script(DATA_DIR + encodeURIComponent(name) + ".js");
       const r = W7.runs[name];
       const g = await geometry(r.geom);
       const bytes = await gunzip(r.u);
@@ -93,7 +91,6 @@
     return runs[name];
   }
 
-  // ---------------------------------------------------------------- helpers
   const cssVar = (name) => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
 
   function frameIndex(ft, t) {
@@ -126,7 +123,6 @@
     return lut;
   }
 
-  // ---------------------------------------------------------------- 3D
   const R = { need: true, panes: [], lut: null };
 
   function initThree(canvas, onChange) {
@@ -143,11 +139,11 @@
     R.lut = rampLUT();
     for (let i = 0; i < 2; i++) {
       const scene = new THREE.Scene();
-      scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8984, 0.8));
-      const sun = new THREE.DirectionalLight(0xffffff, 0.45);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x8a8984, 0.82));
+      const sun = new THREE.DirectionalLight(0xffffff, 0.48);
       sun.position.set(-1, -1.5, 2);
       scene.add(sun);
-      const fill = new THREE.DirectionalLight(0xffffff, 0.2);
+      const fill = new THREE.DirectionalLight(0xffffff, 0.22);
       fill.position.set(1, 1, -1);
       scene.add(fill);
       R.panes.push({ scene, name: null });
@@ -172,7 +168,6 @@
       r.setViewport(x, y, vw, vh);
       r.setScissor(x, y, vw, vh);
       R.camera.aspect = vw / vh;
-      // keep the horizontal field of view of a 1.4:1 viewport when the viewport is taller than that
       R.camera.fov = R.camera.aspect >= 1.4 ? 35
         : (2 * Math.atan((Math.tan((17.5 * Math.PI) / 180) * 1.4) / R.camera.aspect) * 180) / Math.PI;
       R.camera.updateProjectionMatrix();
@@ -186,6 +181,28 @@
     group.parent && group.parent.remove(group);
   }
 
+  function makeBoxPrism(b) {
+    const g = new THREE.BoxGeometry(1, 1, 1);
+    const m4 = new THREE.Matrix4().makeBasis(
+      new THREE.Vector3(...b.u), new THREE.Vector3(...b.v), new THREE.Vector3(...b.w)
+    ).setPosition(new THREE.Vector3(...b.c));
+    g.applyMatrix4(m4);
+    const isPlate = b.kind === "plate", isSeat = b.kind === "seat";
+    const colName = isPlate ? "--plate" : isSeat ? "--support" : "--col3d";
+    const mesh = new THREE.Mesh(g, new THREE.MeshLambertMaterial({
+      color: cssVar(colName), transparent: true, opacity: isPlate ? 0.78 : isSeat ? 0.72 : 0.44,
+      depthWrite: isPlate || isSeat, side: THREE.DoubleSide,
+    }));
+    mesh.userData.varName = colName;
+    const edges = new THREE.LineSegments(new THREE.EdgesGeometry(g), new THREE.LineBasicMaterial({
+      color: cssVar(colName), transparent: true, opacity: isPlate ? 0.95 : 0.65,
+    }));
+    edges.userData.varName = colName;
+    const grp = new THREE.Group();
+    grp.add(mesh, edges);
+    return grp;
+  }
+
   function setPaneRun(p, d) {
     clear(p.root);
     const g = d.geom, root = new THREE.Group();
@@ -196,12 +213,42 @@
     steelG.setAttribute("color", col);
     steelG.setIndex(new THREE.BufferAttribute(g.idxSteel, 1));
     const steel = new THREE.Mesh(steelG, new THREE.MeshLambertMaterial({ vertexColors: true, side: THREE.DoubleSide }));
+
+    // Optional faint initial (t = 0) steel wireframe so deformations are clear against starting geometry
+    const ghostG = new THREE.BufferGeometry();
+    ghostG.setAttribute("position", new THREE.BufferAttribute(new Float32Array(g.x0), 3));
+    ghostG.setIndex(new THREE.BufferAttribute(g.idxSteel, 1));
+    const ghost = new THREE.Mesh(ghostG, new THREE.MeshBasicMaterial({
+      color: cssVar("--support"), wireframe: true, transparent: true, opacity: 0.14, depthWrite: false,
+    }));
+
     const slabG = new THREE.BufferGeometry();
     slabG.setAttribute("position", pos);
     slabG.setIndex(new THREE.BufferAttribute(g.idxSlab, 1));
     const slab = new THREE.Mesh(slabG, new THREE.MeshLambertMaterial({
       color: cssVar("--neutral"), transparent: true, opacity: 0.22, depthWrite: false, side: THREE.DoubleSide }));
     slab.renderOrder = 2;
+
+    const cols3d = new THREE.Group();
+    if (d.meta.solids) {
+      for (const b of d.meta.solids) cols3d.add(makeBoxPrism(b));
+    }
+
+    const walkGrp = new THREE.Group();
+    if (d.meta.walk) {
+      const mkLine = (pts, varName, dashed) => {
+        const lg = new THREE.BufferGeometry().setFromPoints(pts.map((q) => new THREE.Vector3(...q)));
+        const mat = dashed
+          ? new THREE.LineDashedMaterial({ color: cssVar(varName), dashSize: 1.5, gapSize: 1.0 })
+          : new THREE.LineDashedMaterial({ color: cssVar(varName), dashSize: 0.6, gapSize: 0.8, transparent: true, opacity: 0.65 });
+        const ln = new THREE.Line(lg, mat);
+        ln.computeLineDistances();
+        ln.userData.varName = varName;
+        return ln;
+      };
+      walkGrp.add(mkLine(d.meta.walk.limit, "--critical", true));
+      walkGrp.add(mkLine(d.meta.walk.web0, "--support", false));
+    }
 
     const supports = new THREE.Group();
     for (const pl of d.meta.planes) {
@@ -211,10 +258,10 @@
       pg.setIndex([0, 1, 2, 0, 2, 3]);
       const c = cssVar("--support");
       supports.add(new THREE.Mesh(pg, new THREE.MeshBasicMaterial({
-        color: c, transparent: true, opacity: at79 ? 0.5 : 0.28, depthWrite: false, side: THREE.DoubleSide })));
+        color: c, transparent: true, opacity: at79 ? 0.32 : 0.20, depthWrite: false, side: THREE.DoubleSide })));
       const eg = new THREE.BufferGeometry();
       eg.setAttribute("position", new THREE.BufferAttribute(new Float32Array(q), 3));
-      supports.add(new THREE.LineLoop(eg, new THREE.LineBasicMaterial({ color: c })));
+      supports.add(new THREE.LineLoop(eg, new THREE.LineBasicMaterial({ color: c, transparent: true, opacity: 0.55 })));
     }
 
     const ns = d.meta.springs.names.length;
@@ -225,9 +272,9 @@
       return new THREE.Points(bg, new THREE.PointsMaterial({ size, sizeAttenuation: false, color: 0xffffff }));
     };
     const intact = mkPoints(5), broken = mkPoints(9);
-    root.add(steel, slab, supports, intact, broken);
+    root.add(steel, ghost, slab, cols3d, walkGrp, supports, intact, broken);
     p.scene.add(root);
-    Object.assign(p, { root, steel, slab, supports, intact, broken, pos, col, d, name: d.meta.name });
+    Object.assign(p, { root, steel, ghost, slab, cols3d, walkGrp, supports, intact, broken, pos, col, d, name: d.meta.name });
   }
 
   function updatePane(p, opt) {
@@ -253,9 +300,15 @@
     }
     p.col.needsUpdate = true;
     p.slab.visible = opt.showSlab;
-    p.supports.visible = opt.showSupports;
+    p.ghost.visible = opt.showGhost;
+    p.cols3d.visible = opt.showCols;
+    p.supports.visible = opt.showSupports && !opt.showCols;
+    p.walkGrp.visible = opt.showCols || opt.showSupports;
     p.slab.material.color.set(cssVar("--neutral"));
+    p.ghost.material.color.set(cssVar("--support"));
     p.supports.traverse((o) => { if (o.material) o.material.color.set(cssVar("--support")); });
+    p.cols3d.traverse((o) => { if (o.material && o.userData.varName) o.material.color.set(cssVar(o.userData.varName)); });
+    p.walkGrp.traverse((o) => { if (o.material && o.userData.varName) o.material.color.set(cssVar(o.userData.varName)); });
 
     const sp = d.meta.springs, tk = d.meta.frames.t[k], A = p.intact.geometry, B = p.broken.geometry;
     const pa = A.attributes.position.array, pb = B.attributes.position.array;
@@ -287,20 +340,19 @@
     const cx = (lo[0] + hi[0]) / 2, cy = (lo[1] + hi[1]) / 2, cz = (lo[2] + hi[2]) / 2;
     const diag = Math.hypot(hi[0] - lo[0], hi[1] - lo[1], hi[2] - lo[2]) || 1000;
     const V = {
-      col79: [[0, 40, -18], [-150, -90, 40]],
-      end: [[0, 0, -16], [0, -170, -6]],
-      below: [[0, 60, -20], [-130, -50, -150]],
+      col79: [[0, 28, -18], [-135, -85, 38]],
+      end: [[0, 0, -16], [0, -165, -6]],
+      below: [[0, 55, -20], [-125, -45, -145]],
       floor: [[cx, cy, cz], [cx - 0.55 * diag, cy - 0.7 * diag, cz + 0.45 * diag]],
-      plan: [[cx, cy, cz], [cx, cy - 1, cz + 1.25 * diag]],
-    }[key];
+      plan: [[0, 14, -16], [0, 13, 145]],
+    }[key] || [[0, 28, -18], [-135, -85, 38]];
     R.controls.target.set(...V[0]);
     R.camera.position.set(...V[1]);
     R.controls.update();
     R.need = true;
   }
 
-  // ---------------------------------------------------------------- app
-  const hash = new URLSearchParams(location.hash.slice(1));
+  const initHash = new URLSearchParams(location.hash.slice(1));
   const names = W7.index.runs.map((r) => r.name);
   const pick = (v, dflt) => (names.includes(v) ? v : dflt);
 
@@ -308,16 +360,24 @@
     data() {
       return {
         index: W7.index,
-        runA: pick(hash.get("a"), W7.index.base),
-        runB: pick(hash.get("b"), names.includes("nist_replica") ? "nist_replica" : names[0]),
-        compare: hash.has("b"),
-        colorBy: hash.get("c") === "disp" ? "disp" : "part",
-        scale: [1, 2, 5, 10, 20].includes(+hash.get("s")) ? +hash.get("s") : 1, scales: [1, 2, 5, 10, 20], showSlab: false, showBolts: true, showStuds: false, showSupports: true,
+        runA: pick(initHash.get("a"), W7.index.base),
+        runB: pick(initHash.get("b"), names.includes("nist_face_plates") ? "nist_face_plates" : names[0]),
+        compare: initHash.has("b"),
+        colorBy: initHash.get("c") === "disp" ? "disp" : "part",
+        scale: [1, 2, 5, 10, 20].includes(+initHash.get("s")) ? +initHash.get("s") : 1,
+        scales: [1, 2, 5, 10, 20],
+        showSlab: false, showBolts: true, showStuds: false, showCols: true, showSupports: true, showGhost: false,
+        siteTab: W7.initTab || "guide",
+        siteLayout: W7.initLayout || "split",
+        showAllControls: false,
+        stepBanner: "",
+        activeView: VIEWS.some((v) => v.key === initHash.get("v")) ? initHash.get("v") : "col79",
         ti: 0, narrow: false, quantity: "lat79", playing: false, hoverT: null, hoverPx: 0, infos: {}, northDeg: 0, theme: 0,
         W: 800, H, M, views: VIEWS, quantities: QUANTITIES, error: null,
       };
     },
     computed: {
+      compactMode() { return this.siteTab === "guide" && this.siteLayout !== "3d" && !this.showAllControls; },
       shown() { return this.compare ? [this.runA, this.runB] : [this.runA]; },
       times() {
         const s = new Set();
@@ -325,6 +385,11 @@
         return [...s].sort((a, b) => a - b);
       },
       tNow() { return this.times[this.ti] || 0; },
+      TNow() {
+        const r = this.infos[this.runA];
+        if (!r || !r.ft.length) return 20;
+        return r.fT[frameIndex(r.ft, this.tNow)];
+      },
       panes() {
         return this.shown.map((n) => {
           const r = this.infos[n];
@@ -332,12 +397,14 @@
           const k = frameIndex(r.ft, this.tNow), last = k === r.ft.length - 1;
           return {
             run: r, events: r.events, diffText: r.diffText,
-            frameText: `Snapshot ${k + 1} of ${r.ft.length}: t = ${r.ft[k].toFixed(2)} s, beam ${r.fT[k].toFixed(0)} °C`,
+            frameText: `Snapshot ${k + 1}/${r.ft.length}: t = ${r.ft[k].toFixed(2)} s, beam ${r.fT[k].toFixed(0)} °C`,
             afterLast: last && r.tEnd > r.ft[k] + 0.05,
-            lastT: `t = ${r.ft[k].toFixed(2)} s`,
             endText: `t = ${r.tEnd.toFixed(2)} s (${r.status})`,
           };
         });
+      },
+      hasPlatesShown() {
+        return this.showCols && this.shown.some((n) => this.infos[n] && this.infos[n].sidePlates !== "clear");
       },
       umaxShown() {
         let m = 0;
@@ -351,13 +418,14 @@
       rampCss() { return "linear-gradient(to right," + BLUE.join(",") + ")"; },
       partLegend() {
         this.theme;
-        const l = [{ name: "Girder", color: cssVar("--s1") }, { name: "Floor beams", color: cssVar("--s2") },
+        const l = [{ name: "Girder A2001", color: cssVar("--s1") }, { name: "Floor beams", color: cssVar("--s2") },
                    { name: "Fin plates", color: cssVar("--s3") }];
-        if (this.showSlab) l.push({ name: "Slab", color: cssVar("--neutral") });
-        if (this.showSupports) l.push({ name: "Column faces, seats and plates (rigid)", color: cssVar("--support") });
+        if (this.showCols) l.push({ name: "Columns 79 & 44", color: cssVar("--col3d") });
+        if (this.hasPlatesShown) l.push({ name: "Col 79 side cover plates", color: cssVar("--plate") });
+        if (this.showSlab) l.push({ name: "Concrete slab", color: cssVar("--neutral") });
         return l;
       },
-      boltWord() { return this.showBolts && this.showStuds ? "Bolt or stud" : this.showStuds ? "Stud" : "Bolt"; },
+      boltWord() { return this.showBolts && this.showStuds ? "Bolt/stud" : this.showStuds ? "Stud" : "Bolt"; },
       boltColors() { this.theme; return { intact: cssVar("--bolt"), broken: cssVar("--critical") }; },
       seriesColors() { this.theme; return [cssVar("--s1"), cssVar("--s2")]; },
       qInfo() {
@@ -402,15 +470,17 @@
     },
     watch: {
       shown: { handler: "loadShown", immediate: true },
-      compare() { this.writeHash(); },
+      compare() { this.notifyHash(); },
       ti() { this.refresh(); },
-      colorBy() { this.refresh(); this.writeHash(); },
-      scale() { this.refresh(); this.writeHash(); },
+      colorBy() { this.refresh(); this.notifyHash(); },
+      scale() { this.refresh(); this.notifyHash(); },
       showSlab() { this.refresh(); },
       showBolts() { this.refresh(); },
       showStuds() { this.refresh(); },
-      W() { this.$refs.svg.setAttribute("viewBox", `0 0 ${this.W} ${H}`); },
+      showCols() { this.refresh(); },
       showSupports() { this.refresh(); },
+      showGhost() { this.refresh(); },
+      W() { if (this.$refs.svg) this.$refs.svg.setAttribute("viewBox", `0 0 ${this.W} ${H}`); },
       theme() { this.refresh(); },
     },
     mounted() {
@@ -420,44 +490,77 @@
         this.$refs.wrap.textContent = "This browser could not start WebGL, so the 3D view is unavailable.";
         return;
       }
-      const ro = new ResizeObserver(() => {
-        const el = this.$refs.canvas;
-        requestAnimationFrame(() => { this.narrow = R.rows = this.$refs.wrap.clientWidth < 700; R.need = true; });
-        if (el.clientWidth > 0 && el.clientHeight > 0) {
+      const doResize = () => {
+        const el = this.$refs.canvas, wrap = this.$refs.wrap;
+        if (!el || !wrap) return;
+        requestAnimationFrame(() => {
+          if (!wrap.clientWidth || !wrap.clientHeight) return;
+          this.narrow = R.rows = wrap.clientWidth < 680;
           R.renderer.setSize(el.clientWidth, el.clientHeight, false);
           R.need = true;
+        });
+        if (this.$refs.svg && this.$refs.svg.clientWidth > 0) {
+          this.W = Math.max(320, Math.round(this.$refs.svg.clientWidth));
+          this.$refs.svg.setAttribute("viewBox", `0 0 ${this.W} ${H}`);
         }
-      });
-      ro.observe(this.$refs.wrap);
-      const fit = () => { this.W = Math.max(320, Math.round(this.$refs.svg.clientWidth)); };
-      new ResizeObserver(fit).observe(this.$refs.svg);
-      fit();
-      this.$refs.svg.setAttribute("viewBox", `0 0 ${this.W} ${H}`);
+      };
+      new ResizeObserver(doResize).observe(this.$refs.wrap);
+      new ResizeObserver(doResize).observe(this.$refs.svg);
+      doResize();
       const bump = () => { this.theme++; };
       window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", bump);
       new MutationObserver(bump).observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
-      window.addEventListener("message", (ev) => {
-        const msg = ev.data;
-        if (!msg || typeof msg !== "object") return;
-        if (msg.type === "wtc7-theme") {
-          if (msg.theme === "light" || msg.theme === "dark") {
-            document.documentElement.setAttribute("data-theme", msg.theme);
-          } else {
-            document.documentElement.removeAttribute("data-theme");
-          }
-        } else if (msg.type === "wtc7-load" && typeof msg.hash === "string") {
-          const p = new URLSearchParams(msg.hash.replace(/^#/, ""));
-          if (p.has("a")) this.runA = pick(p.get("a"), this.runA);
-          this.compare = p.has("b");
-          if (p.has("b")) this.runB = pick(p.get("b"), this.runB);
-          this.colorBy = p.get("c") === "disp" ? "disp" : "part";
-          this.scale = this.scales.includes(+p.get("s")) ? +p.get("s") : 1;
-          const v = p.get("v");
-          if (v && VIEWS.some((x) => x.key === v)) this.setView(v);
-        }
-      });
       this.mountedThree = true;
       this.refresh();
+
+      W7.viewer = {
+        setContext: (tab, layout) => {
+          this.siteTab = tab;
+          this.siteLayout = layout;
+          doResize();
+        },
+        resize: doResize,
+        getHashParams: () => ({
+          a: this.runA,
+          b: this.compare ? this.runB : "",
+          c: this.colorBy === "disp" ? "disp" : "",
+          s: this.scale !== 1 ? String(this.scale) : "",
+        }),
+        apply: async (opts) => {
+          if (!opts) return;
+          if (opts.a) this.runA = pick(opts.a, this.runA);
+          this.compare = Boolean(opts.b && names.includes(opts.b));
+          if (this.compare) this.runB = pick(opts.b, this.runB);
+          this.colorBy = opts.c === "disp" ? "disp" : "part";
+          this.scale = this.scales.includes(+opts.s) ? +opts.s : 1;
+          if (opts.q && QUANTITIES.some((q) => q.key === opts.q)) this.quantity = opts.q;
+          if (typeof opts.slab === "boolean") this.showSlab = opts.slab;
+          if (typeof opts.bolts === "boolean") this.showBolts = opts.bolts;
+          if (typeof opts.ghost === "boolean") this.showGhost = opts.ghost;
+          if (typeof opts.cols === "boolean") this.showCols = opts.cols;
+          this.stepBanner = opts.banner || "";
+          await this.loadShown();
+          if (opts.T != null) {
+            const r = this.infos[this.runA];
+            if (r) {
+              let targetT = r.ft[r.ft.length - 1];
+              for (let k = 0; k < r.fT.length; k++) if (r.fT[k] <= +opts.T + 1e-6) targetT = r.ft[k];
+              this.jumpTo(targetT);
+            }
+          } else if (opts.t != null) {
+            this.jumpTo(+opts.t);
+          } else {
+            this.ti = Math.max(0, this.times.length - 1);
+          }
+          if (opts.v && VIEWS.some((v) => v.key === opts.v)) this.setView(opts.v);
+          doResize();
+          this.notifyHash();
+        },
+      };
+      if (W7.pendingApply) {
+        W7.viewer.apply(W7.pendingApply);
+        W7.pendingApply = null;
+      }
     },
     methods: {
       paneStyle(i) {
@@ -480,8 +583,8 @@
         }
         const T = this.times;
         this.ti = fresh || prev == null ? T.length - 1 : Math.max(0, T.reduce((k, t, i) => (t <= prev + 1e-6 ? i : k), 0));
-        if (fresh) this.setView(VIEWS.some((v) => v.key === hash.get("v")) ? hash.get("v") : "col79");
-        this.writeHash();
+        if (fresh) this.setView(this.activeView);
+        this.notifyHash();
         this.refresh();
       },
       async ensure(n) {
@@ -492,7 +595,8 @@
         ev.sort((a, b) => a.t - b.t);
         const diff = Object.entries(m.diff).map(([k, v]) => k + " = " + v).join(", ");
         this.infos[n] = {
-          name: n, label: m.label, reading: m.reading, status: m.status, col79: m.col79, walkLat: m.walk_lat, res: m.res,
+          name: n, label: m.label, reading: m.reading, status: m.status, col79: m.col79, walkLat: m.walk_lat,
+          sidePlates: m.side_plates || "auto", res: m.res,
           ft: m.frames.t, fT: m.frames.T, unorm: m.frames.unorm, tEnd: m.trace.t[m.trace.t.length - 1],
           events: ev, diffText: diff, trace: Vue.markRaw(m.trace),
         };
@@ -500,8 +604,11 @@
       refresh() {
         if (!this.mountedThree) return;
         R.count = this.shown.length;
-        const opt = { t: this.tNow, scale: this.scale, colorBy: this.colorBy, umax: this.umaxShown,
-                      showSlab: this.showSlab, showBolts: this.showBolts, showStuds: this.showStuds, showSupports: this.showSupports };
+        const opt = {
+          t: this.tNow, scale: this.scale, colorBy: this.colorBy, umax: this.umaxShown,
+          showSlab: this.showSlab, showBolts: this.showBolts, showStuds: this.showStuds,
+          showCols: this.showCols, showSupports: this.showSupports, showGhost: this.showGhost,
+        };
         this.shown.forEach((n, i) => {
           const p = R.panes[i];
           if (!this.infos[n]) return;
@@ -514,9 +621,10 @@
         R.need = true;
       },
       setView(key) {
+        this.activeView = key;
         const n = this.shown.find((x) => this.infos[x]);
         if (!n) return;
-        runs[n].then((d) => setView(key, d.geom));
+        runs[n].then((d) => { setView(key, d.geom); this.updateNorth(); });
       },
       updateNorth() {
         const v = new THREE.Vector3().subVectors(R.controls.target, R.camera.position);
@@ -533,20 +641,16 @@
         this.timer = setInterval(() => {
           if (this.ti >= this.times.length - 1) { this.playing = false; clearInterval(this.timer); return; }
           this.ti++;
-        }, 700);
+        }, 550);
       },
       hover(e) {
         const svg = this.$refs.svg, rect = svg.getBoundingClientRect(), box = svg.parentElement.getBoundingClientRect();
         const x = ((e.clientX - rect.left) * this.W) / rect.width;
         this.hoverT = ((x - M.l) / (this.W - M.l - M.r)) * this.xMax;
-        this.hoverPx = Math.min(e.clientX - box.left, box.width - 300);
+        this.hoverPx = Math.min(e.clientX - box.left, box.width - 280);
       },
       clickTrace() { if (this.hoverInfo) this.jumpTo(this.hoverInfo.t); },
-      writeHash() {
-        const h = "a=" + encodeURIComponent(this.runA) + (this.compare ? "&b=" + encodeURIComponent(this.runB) : "") +
-          (this.colorBy === "disp" ? "&c=disp" : "") + (this.scale !== 1 ? "&s=" + this.scale : "");
-        history.replaceState(null, "", "#" + h);
-      },
+      notifyHash() { if (W7.syncHash) W7.syncHash(); },
     },
-  }).mount("#app");
+  }).mount("#viewer-app");
 })();

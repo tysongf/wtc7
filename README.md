@@ -21,13 +21,14 @@ See `docs/phase1_gate.md` and `docs/writeup.md`.
 
 ## QuickStart
 
-### View the report and 3D simulation
+### View the Plain-English Guide, Report, and 3D Model
 
-No Python setup or `npm install` is needed to browse the results (requires only Node/npm and Python 3):
+No Python setup or `npm install` is needed to browse the unified site (`reports/forensic/index.html`, requires only Node/npm and Python 3):
 
-- `npm run report` — open the Phase 1 forensic report (`reports/forensic/index.html`) directly in your browser.
-- `npm run viewer` — open the interactive 3D simulation viewer (`reports/forensic/viewer/index.html`) directly in your browser.
-- `npm start` (or `npm run serve`) — start a local web server serving both at `http://127.0.0.1:8765/` (report) and `http://127.0.0.1:8765/viewer/` (3D viewer).
+- `npm run guide` — open the Plain-English Audit Guide + interactive 3D Viewer directly in your browser.
+- `npm run report` — open the full Technical Forensic Report (`#tab=report`) in your browser.
+- `npm run viewer` — open the interactive 3D simulation viewer fullscreen (`#layout=3d`) in your browser.
+- `npm start` (or `npm run serve`) — start a local web server at `http://127.0.0.1:8765/` serving the unified site.
 
 ### Set up Python, run verification tests, or rebuild reports (optional)
 
@@ -69,8 +70,8 @@ Phase 1 tests NIST NCSTAR 1-9 §8.8 (the Floor 13 northeast partial-floor model 
 | `docs/compute_log.md` | Hardware, solver settings, run times |
 | `docs/phase1_gate.md` | Phase 1 gate note |
 | `docs/running_elsewhere.md` | Moving the detailed-model runs to another machine |
-| `reports/forensic/` | Forensic report web page (built by `scripts/build_report.py`) |
-| `reports/forensic/viewer/` | 3D viewer of the detailed-model runs (data from `scripts/export_viewer.py`; Vue 3.5.13 and Three.js 0.147.0 vendored in `vendor/` with checksums); opens from `file://` |
+| `reports/forensic/` | Unified web page (`index.html`, built by `scripts/build_report.py`): Plain-English Audit Guide, Technical Forensic Report and native 3D Viewer; opens from `file://` |
+| `reports/forensic/viewer/` | 3D viewer scripts, CSS, run bundles (`data/`, from `scripts/export_viewer.py`) and vendored Vue 3.5.13 / Three.js 0.147.0 (`vendor/`) |
 | `docs/writeup.md` | Short write-up |
 | `wtc7/` | Library: materials (NIST Appendix E rebuilt, EN 1993-1-2), sections, assumptions, geometry sets, plan-view solver (`fe2d.py`), explicit shell solver (`xfe/`) |
 | `phase1/` | Hand calculations, beam-element model, shell model, run, verification and summary scripts |

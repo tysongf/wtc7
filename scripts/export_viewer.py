@@ -2,12 +2,11 @@
 
 The run outputs keep only node positions at the snapshot temperatures (results/phase1/shell/runs/*.npz),
 so the mesh is rebuilt from each run's stored Config (phase1/shell_model.py) and checked against the
-first snapshot. Each run is written as a classic script (data/<run>.js) so the viewer opens from
-file:// without a server. Displacements are rounded to RES (0.005 in., coarser only if a run moves
-more than 16383 x RES) and stored as int16 differences between snapshots, component-major, low bytes
-then high bytes, gzip-compressed and base64-encoded: about 0.8 MB a run instead of 9 MB.
+first snapshot. When diagnostic state dumps exist (results/phase1/shell/dumps/<run>.npz), sampled hold-phase
+snapshots are appended so 700 C hold walk-offs animate in 3D. Each run is written as a classic script
+(data/<run>.js) so the unified page opens from file:// without a server.
 
-    .venv/bin/python scripts/export_viewer.py                  # the runs named in report figures
+    .venv/bin/python scripts/export_viewer.py                  # default key, restore and diagnostic runs
     .venv/bin/python scripts/export_viewer.py nist_holes ...   # any runs
 """
 from __future__ import annotations
@@ -25,27 +24,33 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "phase1"))
+from wtc7 import assumptions as asm                          # noqa: E402
+from wtc7.sections import shape                              # noqa: E402
 from shell_model import Config, build                        # noqa: E402
 from summarize_shell import classify                         # noqa: E402
 from report_figures import BASE, KEY                         # noqa: E402
 
 SHELL = ROOT / "results" / "phase1" / "shell" / "runs"
+DUMPS = ROOT / "results" / "phase1" / "shell" / "dumps"
 OUT = ROOT / "reports" / "forensic" / "viewer" / "data"
 NIST = ("nist_holes", "nist_face_drawn", "nist_mu0.3", "nist_face_plates")
-DEFAULT = list(KEY) + [n for n in NIST if n not in KEY]
+EXTRA = ("S15_muslab0", "A97_stiffeners_r0.5")
+DEFAULT = list(KEY) + [n for n in (*NIST, *EXTRA) if n not in KEY and (SHELL / f"{n}.npz").exists()]
 LABELS = {
     BASE: "Baseline (reported, half rate)",
     "mu0_r0.5": "Friction 0 at column 79",
     "Q12_clear_mu0_r0.5": "Side plates removed, friction 0",
     "S7_peak700_r0.5": "Peak 700 C",
     "favourable": "Combined run (preregistered)",
-    "favourable_dump": "Combined run, repeat with state dumps",
+    "favourable_dump": "Combined run, repeat with 700 C hold dumps",
     "favourable_s6": "Combined run, Section 6 repeat",
-    "nist_replica": "NIST replica",
+    "nist_replica": "NIST replica (14.6 deg, no plates, mu=0)",
     "nist_holes": "NIST replica, standard holes restored",
-    "nist_face_drawn": "NIST replica, drawn face restored",
-    "nist_mu0.3": "NIST replica, friction 0.3",
-    "nist_face_plates": "NIST replica, drawn face and side plates restored",
+    "nist_face_drawn": "NIST replica, drawn 4.17 deg face restored",
+    "nist_mu0.3": "NIST replica, friction 0.3 restored",
+    "nist_face_plates": "NIST replica, drawn face + side plates restored",
+    "S15_muslab0": "Beam-slab friction 0 (beam buckles at 284 C)",
+    "A97_stiffeners_r0.5": "Girder end stiffeners as drawn",
 }
 TRACE = ("lat79", "ax79", "dz79", "twist79")
 SKIP_CFG = ("name", "threads", "dump_after", "dump_every", "t_end")
@@ -94,6 +99,65 @@ def plane_quad(m, pc):
             ((lim[0], lim[2]), (lim[1], lim[2]), (lim[1], lim[3]), (lim[0], lim[3]))]
 
 
+def column_solids(fl):
+    """3D display prisms for Col 79 (W14x730 + side cover plates + seat), Col 44 (W14x665 + seat),
+    and the 6.25 in. walk-off reference lines on the Col 79 seat."""
+    a94, a95, c44 = asm.value("A94"), asm.value("A95"), asm.value("A96")
+    sec79 = shape("W14X730")
+    sec44 = shape(c44["section"])
+    g = fl.gsec
+    EZ = np.array([0.0, 0.0, 1.0])
+    EX, EY = np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0])
+    C79, Np, Ep = fl.C79, fl.Np, fl.Ep
+    hd, pe, pi, t_pl = a94["half_depth"], a94["plate_end"], a94["plate_inner"], a94["plate_t"]
+    zc, zh = -26.0, 80.0
+    boxes = []
+
+    def add_box(c, u, v, w, kind):
+        boxes.append(dict(c=np.round(c, 3).tolist(), u=np.round(u, 3).tolist(),
+                          v=np.round(v, 3).tolist(), w=np.round(w, 3).tolist(), kind=kind))
+
+    # Col 79 W14x730 core (north flange, south flange, web)
+    tf79, tw79 = sec79.tf, sec79.tw
+    for sgn in (1.0, -1.0):
+        add_box(C79 + sgn * (hd - tf79 / 2) * Np + zc * EZ, 2 * pi * Ep, tf79 * Np, zh * EZ, "col")
+    add_box(C79 + zc * EZ, tw79 * Ep, 2 * (hd - tf79) * Np, zh * EZ, "col")
+
+    # Col 79 side cover plates (2 PL 26 x 2) when present in this run
+    if fl.cfg.side_plates in ("auto", "drawn"):
+        for sgn in (-1.0, 1.0):
+            add_box(C79 + sgn * (pi + t_pl / 2) * Ep + zc * EZ, t_pl * Ep, 2 * pe * Np, zh * EZ, "plate")
+
+    # Col 79 seat plate pf (12 x 8.25 x 1 in.)
+    z_seat = -g.d
+    face_s = float((C79 + hd * Np) @ fl.eg)
+    seat_len = float(fl.seat_far - face_s)
+    seat_c = (face_s + seat_len / 2) * fl.eg + (z_seat - 0.5) * EZ
+    add_box(seat_c, a95["width"] * fl.ng, seat_len * fl.eg, 1.0 * EZ, "seat")
+
+    # Col 44 W14x665 core + seat
+    C44 = fl.C44
+    for sgn in (-1.0, 1.0):
+        add_box(C44 + sgn * ((sec44.d - sec44.tf) / 2) * EX + zc * EZ,
+                sec44.tf * EX, sec44.bf * EY, zh * EZ, "col")
+    add_box(C44 + zc * EZ, (sec44.d - 2 * sec44.tf) * EX, sec44.tw * EY, zh * EZ, "col")
+    y_web = C44[1] - sec44.tw / 2
+    x_in = sec44.d / 2 - sec44.tf
+    add_box(np.array([C44[0], y_web - c44["seat_len"] / 2, z_seat - 0.5]),
+            2 * x_in * EX, c44["seat_len"] * EY, 1.0 * EZ, "seat")
+
+    # Reference lines just above the Col 79 seat: initial web line (0 in.) and walk-off threshold (walk_lat west)
+    zl = z_seat + 0.18
+    wlat = float(fl.cfg.walk_lat)
+    walk = dict(
+        web0=[(face_s * fl.eg + zl * EZ).round(3).tolist(),
+              ((fl.seat_far + 6.0) * fl.eg + zl * EZ).round(3).tolist()],
+        limit=[((face_s - 1.0) * fl.eg + wlat * fl.west + zl * EZ).round(3).tolist(),
+               ((fl.seat_far + 6.0) * fl.eg + wlat * fl.west + zl * EZ).round(3).tolist()],
+    )
+    return boxes, walk
+
+
 def geometry(fl):
     m = fl.m
     parts = sorted({k.split(".")[0].rstrip("0123456789") for k in m.parts})
@@ -113,8 +177,22 @@ def export(name):
     fl = build(config_of(r))
     m = fl.m
     x = d["x"]
+    ft = d["t"].astype(np.float64)
+    fT = d["T_beam"].astype(np.float64)
     if x.shape[1] != m.nn or np.abs(x[0] - m.x0).max() > 1e-3:
         raise SystemExit(f"{name}: rebuilt mesh does not match the saved snapshots")
+
+    # Append sampled hold-phase state dumps if present (e.g. favourable_dump)
+    dmp_file = DUMPS / f"{name}.npz"
+    if dmp_file.exists():
+        dmp = np.load(dmp_file, mmap_mode="r")
+        ks = sorted(int(k.split("_")[1]) for k in dmp.keys() if k.startswith("t_"))
+        keep = [i for j, i in enumerate(ks) if (j % 5 == 0 or i == ks[-1]) and float(dmp[f"t_{i:03d}"]) > ft[-1] + 1e-4]
+        if keep:
+            x = np.concatenate([x, np.stack([dmp[f"x_{i:03d}"] for i in keep], axis=0)], axis=0)
+            ft = np.concatenate([ft, [float(dmp[f"t_{i:03d}"]) for i in keep]])
+            fT = np.concatenate([fT, [float(r["config"]["peak"]) for _ in keep]])
+
     gkey, g = geometry(fl)
     gfile = OUT / f"geom_{gkey}.js"
     if not gfile.exists():
@@ -137,14 +215,17 @@ def export(name):
     base = json.loads((SHELL / f"{BASE}.json").read_text())["config"]
     diff = {k: v for k, v in r["config"].items() if k not in SKIP_CFG and base.get(k) != v}
     planes = [dict(name=pc.name, quad=plane_quad(m, pc)) for pc in m.planes]
+    solids, walk = column_solids(fl)
     run = dict(name=name, label=LABELS.get(name, name), reading=classify(r), status=r["status"],
                rate=r["config"]["rate"], diff=diff, col79=r["config"]["col79"], walk_lat=r["config"]["walk_lat"],
+               side_plates=r["config"].get("side_plates", "auto"),
                events={k: dict(t=round(v["t"], 4), T=round(v["T_beam"], 1)) for k, v in r["events"].items()},
-               geom=gkey, frames=dict(t=d["t"].round(4).tolist(), T=d["T_beam"].round(1).tolist(),
+               geom=gkey, frames=dict(t=ft.round(4).tolist(), T=fT.round(1).tolist(),
                                       unorm=unorm.round(3).tolist()),
-               res=res, u=b64gz(packed), planes=planes, springs=springs, trace=trace)
+               res=res, u=b64gz(packed), planes=planes, solids=solids, walk=walk,
+               springs=springs, trace=trace)
     (OUT / f"{name}.js").write_text(f"WTC7.runs[{json.dumps(name)}] = {json.dumps(run)};\n")
-    return dict(name=name, label=run["label"], reading=run["reading"], frames=len(d["t"]),
+    return dict(name=name, label=run["label"], reading=run["reading"], frames=len(ft),
                 bytes=(OUT / f"{name}.js").stat().st_size)
 
 
@@ -155,7 +236,6 @@ def main(argv):
     for n in names:
         index.append(export(n))
         print(f"{n}: {index[-1]['frames']} snapshots, {index[-1]['bytes'] / 1e6:.1f} MB", flush=True)
-    # keep runs exported earlier that are still on disk
     known = {i["name"] for i in index}
     old = OUT / "index.js"
     if old.exists() and argv:
@@ -164,6 +244,14 @@ def main(argv):
     order = {n: i for i, n in enumerate(DEFAULT)}
     index.sort(key=lambda i: order.get(i["name"], len(order)))
     old.write_text("WTC7.index = " + json.dumps(dict(base=BASE, runs=index)) + ";\n")
+    if not argv:
+        used_geoms = set()
+        for i in index:
+            r = json.loads((OUT / f"{i['name']}.js").read_text().split("=", 1)[1].rstrip().rstrip(";"))
+            used_geoms.add(f"geom_{r['geom']}.js")
+        for gf in OUT.glob("geom_*.js"):
+            if gf.name not in used_geoms:
+                gf.unlink()
 
 
 if __name__ == "__main__":
