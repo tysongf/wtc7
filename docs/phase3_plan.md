@@ -1,94 +1,77 @@
 # Phase 3 plan: does column 79's failure bring down the whole building?
 
-Draft, 2026-11-02. Criteria are in `docs/phase3_preregistration.md`; this file is the plan for
-getting there. Source notes: `docs/phase3_sources/nist_facts.md` (NIST) and
-`docs/phase3_sources/uaf_notes.md` (University of Alaska Fairbanks 2020, secondary).
+Finalized 2026-11-26 (updated from 2026-11-02 draft after design review). Pre-registered criteria:
+`docs/phase3_preregistration.md`. Source fact sheets: `docs/phase3_sources/nist_facts.md` and
+`docs/phase3_sources/uaf_notes.md`.
 
-## Why conditional, and why now
+## Why conditional, and why skipping Phase 2
 
-Phase 1 has not passed its gate, so the preregistered order would hold Phase 3 back. The question
-Phase 3 asks ("if column 79 fails, does everything follow?") does not depend on how column 79
-failed, so it can be answered now without touching the Phase 1 result. The decision is recorded in
-the change log of `docs/preregistration.md`.
+Phase 1 has not passed its gate (beam-buckling mismatch and two narrow numerical check thresholds), and
+Phase 2 (multi-hour fire temperature histories) is skipped. Because Phase 3 asks a conditional
+structural question—"if Column 79 fails or loses lateral bracing over `N` storeys, does the 47-storey
+building arrest or collapse completely?"—it does not depend on how Column 79 failed. To guard against
+missing a temperature-assisted progression while skipping Phase 2, baseline runs use 20 C steel
+(favouring arrest) and sweep `T9` applies NIST's Case B (~4.0 h) Floor 8–14 steel temperatures.
 
 ## What earlier work leaves open
 
-- **NIST** ran two global cases that bear on this: its best estimate (fire and debris damage, column
-  79 buckles after floors 5 to 13 fail around it) and a "classic" case with column 79 removed
-  between floors 11 and 13 and no fire or debris. Both collapsed completely. The model (LS-DYNA,
-  3.05 million elements) took up to eight weeks per run on 12 cores; its input files were not
-  released. NIST ran no sweep of the removed length or of the connection capacities.
-- **UAF** removed columns 79, 80 and 81 together (never 79 alone), kept every floor intact, and
-  judged failure from linear analyses (a column fails when its linear axial force exceeds its design
-  load; no P-delta). Its "no collapse" result for 79 to 81 is therefore not a test of this question
-  either.
+- **NIST (NCSTAR 1-9 / 1-9A)** ran two relevant global LS-DYNA cases (3.05M shells, ~8 weeks on 12
+  cores, input files withheld): its 4.0 h fire-damage state (Floors 6–14 failing around Col 79 before
+  Col 79 buckles over 9 storeys) and a fire-free "classic" removal of Col 79 between Floors 11 and 13.
+  Both collapsed completely, and a 3.5 h damage case without Col 79 buckling arrested locally. NIST
+  published no sweep of removed column length or connection capacities.
+- **UAF (2020)** never removed Column 79 alone; its smallest removal set removed Columns 79, 80 and 81
+  together (Floors 6–13) with all floors kept intact, evaluated via linear-static analysis without
+  `P-Delta` or falling-floor impact, reporting ~10 in. eastward tilt and no collapse.
 
-Neither tested column 79 alone with a nonlinear dynamic model, a removal-length sweep, and
-published criteria. That is the gap Phase 3 fills.
+Phase 3 tests `D0` (NIST's 9-storey unbraced state with falling Floor 6–13 bays), `R1`–`R9` (1-to-9
+storey removal sweep), `RC` (NIST classic Floors 11–13 removal), and `RU` (UAF's Columns 79–81 removal
+in a nonlinear dynamic `P-Delta` + connection-fracture + floor-impact model) under pre-registered rules.
 
-## Steps
+## Resolved architecture decisions
 
-1. **Approve and hash** the Phase 3 preregistration and the change-log row, before any Phase 3
-   calculation.
-2. **Get the drawings.** Download and archive, with checksums, the Cantor structural set (FOIA
-   11-209, 41 files, 131 MB) and the Frankel erection sheets (FOIA 12-009, 64 files, 168 MB),
-   extending `scripts/fetch_drawings.sh`. We hold 16 drawing files now, almost all for floors 8 to 13 near column 79.
-3. **Read the frame.** Grid coordinates, storey heights, column schedule and splices, floor framing
-   by floor type, transfer trusses and girders at floors 5 to 7, the east penthouse, and the
-   connection types. Inputs go into `wtc7/assumptions.py` as A100 onward with source and status;
-   gaps go into `docs/open_questions.md`. NIST lists none of the grid, the column schedule or the
-   truss member sizes (fact sheet Section 7), so the drawings are the only source.
-4. **Phase 3 hand calculations** (`results/phase3/hand_calcs.md`), reported before any model run
-   and setting no class:
-   - column loads at each floor for columns 76 to 81, checked against NIST's 7,525 kip for column 79;
-   - whether the floors above a removed segment of column 79 can bridge it (shear-tab connections
-     in Vierendeel or catenary action, with the dynamic factor for sudden removal);
-   - whether a falling floor stops on the one below (energy of a one-storey fall against what the
-     floor connections can absorb), and how many floors the cascade needs;
-   - the buckling capacity of columns 80, 81 and 76 to 78 as floors around them are lost, as in
-     Phase 1 hand calculation Section 7;
-   - Truss 2 against the loss of column 80 above floor 7.
-5. **Solver set-up and checks**: the closed-form tests and the small benchmark of preregistration
-   Section 8, before the building model is used.
-6. **Build the model**: a 3D frame of all storeys with beam-column elements, nonlinear connection
-   springs that fail, coarse slab shells for mass and membrane action, and contact so that falling
-   floors land on the floors below. Gravity is ramped and settled before any trigger (the Phase 1
-   lesson: an unsettled gravity step decided the order of the bolt failures).
-7. **Pilot**: time one D0 run to replace the estimate below.
-8. **Runs**, in order: D0 and RC; the mesh, removal-time and repeat checks; R1 to R9; the one-at-a-time
-   sweeps; the two combined runs.
-9. **Write-up and forensic page**, with the class, the sweep result and the comparison with the
-   observations.
+1. **Solver (`wtc7/xfe` extended in C/OpenMP):** Extend `wtc7/xfe/kernel.c` and `wtc7/xfe/` with 3D
+   co-rotational elastoplastic fibre beam-columns, coupled 6-DOF breakable connection springs (`F`, `K`,
+   `H`, `STC`, `STP`, `SWC`, perimeter moment joints) and explicit 2-storey column splices, plus
+   mass-conserving storey-to-storey floor impact contact. Cross-check on a 2-bay x 3-storey sudden
+   column-removal benchmark against CalculiX 2.20 (`tools/calculix/`).
+2. **Base boundary & lower floors:** Match NIST's boundary—fix column bases below Floor 2, treat the
+   1967 Con Edison substation up to Floor 3 as rigid, and explicitly model Floors 2 to 47 including
+   Transfer Trusses 1, 2 and 3, transfer girders (`MG-21` to `MG-53`), and the Floor 5 and Floor 7
+   diaphragms from the Cantor `S`-sheets.
+3. **Storage & compute footprint:** Local `/dev/sda5` has ~2.5 GB free on a 4-core i5 laptop. Keep code,
+   benchmarks, and compressed run histories lightweight (a few MB per run), stream/crop FOIA sheets as
+   needed without bloating disk, and keep the runner portable to a larger multi-core machine if needed.
+4. **Presentation:** Integrate Phase 3 into the unified website (`reports/forensic/index.html`) with a
+   Phase 3 Plain-English Question-Driven Audit tab, technical report, and interactive 3D collapse viewer.
 
-## Size and time (estimate, to be replaced by the pilot)
+## Ordered steps
 
-About 60,000 beam elements and 75,000 slab shells at about 5 ft. The time step is set by the
-shortest beam elements (about 2 ft): about 1.2e-4 s, so 30 s takes about 250,000 cycles. At the
-rate the Phase 1 shell runs achieved (about 4 million element updates per second on two threads),
-that is 2 to 4 h per run before contact. Section 5 lists 11 triggers, 23 sweep runs, 2 combined
-runs and 5 check runs: about 41 runs, roughly a week of laptop time, plus the fine-mesh runs at
-several times the cost.
-
-Reading the drawings and building the model are the long part: weeks, not days. The floors below
-floor 7 (transfer trusses, the Con Ed substation) are the most complex and the least well drawn;
-UAF's model started at floor 3 because the substation drawings were missing.
-
-## Decision needed: the solver
-
-| Option | For | Against |
-|---|---|---|
-| **OpenRadioss** (open-source explicit code, AGPL; beams, shells, contact, element deletion) | Mature collapse and impact code; contact between falling floors is built in; can be checked against the same closed-form tests | A new external dependency (download or build); its input format has to be learned |
-| **Extend our explicit solver** (`wtc7/xfe`) with 3D beams, connection springs and floor contact | Same code and checks as Phase 1; every line is ours | Weeks of solver work before any building run; large-scale contact is the hardest part and is new |
-| **OpenSees** | Standard for column-removal studies; good beam-column elements | No contact between falling floors, so the floor cascade and debris loading cannot be represented |
-
-Recommended: OpenRadioss, verified against the closed-form tests and, on the small benchmark,
-against our own solver.
-
-## What this will not show
-
-- Why column 79 failed. Phase 3 assumes it.
-- Heated members: all steel is at 20 C (Phase 2 supplies temperatures).
-- Local buckling of plates, weld fracture and bolt tear-out inside connections; connections are
-  springs calibrated by hand calculation, not meshed.
-- Anything about causes other than column 79's failure. A result that its failure is not
-  sufficient would contradict NIST's sequence; it would not by itself show what happened instead.
+1. **Lock and hash pre-registration** (`docs/phase3_preregistration.md`, recorded in
+   `docs/compute_log.md`) before any Phase 3 calculation.
+2. **Phase 3 hand calculations** (`phase3/hand_calcs.py` -> `results/phase3/hand_calcs.md`):
+   - Tributary gravity loads on Columns 76–81 and 44 from Floor 47 to Floor 2, checked against NIST's
+     7,525 kip (Col 79 above Floor 8) and 174,136 kip total above Floor 8;
+   - Double-span Vierendeel and catenary bridging check across a removed Column 79 segment (with the
+     `2.0x` sudden-removal dynamic factor against shear/tension connection capacities);
+   - One-storey falling-floor impact energy (`m g h` over `153 in.`) against the maximum strain/plastic
+     energy absorbable by the connections of one floor bay, and cascade runaway storey count;
+   - Elastic (`Pe`) and AISC 360 E3 inelastic (`Pn`) buckling capacities of Columns 80, 81, 76, 77 and
+     78 for 1 to 10 unbraced storeys (at 20 C and 200 C);
+   - Truss 2 demand check (Floors 5–7, carrying Col 77 and MG-23 / Col 78, supported at its east end by
+     Col 80) under loss of Column 80 or debris accumulation on Floors 5–7.
+3. **Solver extension & verification** (`wtc7/xfe/`, `tests/test_phase3_xfe.py`,
+   `phase3/verify_benchmark.py` -> `results/phase3/verification.md`):
+   - All six closed-form tests in `phase3_preregistration.md` Section 8;
+   - Independent 2-bay x 3-storey sudden column-removal dynamic cross-check against CalculiX 2.20.
+4. **FOIA Cantor & Frankel structural reading** (`A100` onward): grid coordinates, storey elevations,
+   column schedule & splices, floor framing by floor group, Transfer Trusses 1–3 & `MG` girders, east
+   and west penthouses, and connection capacities.
+5. **Build the 47-storey 3D model** (`phase3/building_model.py`) with settled gravity initialization
+   (`KE / IE < 1 %`, roof `|v_z| < 0.1 in./s` before any trigger).
+6. **Pilot & verification checks** on `D0` and `RC` (energy balance, mesh refinement, `t_r` sensitivity,
+   repeatability).
+7. **Full run matrix**: `D0`, `RC`, `RU`, `RU_debris`, `R1`–`R9`, sweeps `T1`–`T9`, and the two combined
+   `D0` runs.
+8. **Unified website & write-up**: add Phase 3 audit cards, 2D diagrams, technical report, and 3D
+   building-collapse viewer to `reports/forensic/index.html`.

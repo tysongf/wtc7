@@ -15,6 +15,8 @@ Hardware for all runs below unless stated: 8 logical CPUs (Intel(R) Core(TM) i5-
 | 2026-10-25T20:57Z | docs/preregistration.md (change log: priority 2 at half rate; before any priority-2 run) | 00615045e1c4c5acf9cd32d1f4bfcd7341b08849d567124bdf95640401338e0c |
 | 2026-10-31T16:56Z | docs/preregistration.md (change log: Section 6 repeat of the combined run and the divergence diagnostic; before either run) | 597ca147847bb51f997327b8fa253f41dadd140c44985c4bdcfea0741d3b8bb5 |
 | 2026-11-01T06:52Z | docs/preregistration.md (change log: NIST-replica diagnostic for gate item 5; before any of its runs) | 9d4a8db1f39dba5abaefd55a4f5d9827d4de69bc68dbe6e67205a3774876004c |
+| 2026-11-26T06:16Z | docs/preregistration.md (change log: conditional Phase 3 start recorded) | d0e104390c165922a533327bf069b4deeb35f30538184df42600a7ffeec57ed7 |
+| 2026-11-26T06:16Z | docs/phase3_preregistration.md (Phase 3 finalized; before any Phase 3 calculation) | ae4ef1f3f1dd05ca3b1d7885270c055e7c12709836e6a8afb9d22f8851ff6cf5 |
 
 No finite-element run had been made when the first two hashes were recorded. The third was recorded after the first (superseded) baseline run and the fourth after all reported runs; each adds a change-log entry only. The fifth was recorded after all priority-2 runs and before the two follow-up runs it describes; the sixth after those and before any NIST-replica run.
 
@@ -119,3 +121,23 @@ sleeps as well (the half-rate runs took 3.7 to 4.7 h). No result depends on wall
   hash above, and finished 2026-11-01T08:50Z (7,068 s). It walked off, so the four restore runs
   (`--set nist_restore`, two jobs on 2 threads each) ran from 2026-11-02T02:10Z to 2026-11-02T09:41Z,
   3.2 to 4.1 h each. The laptop was rebooted between the two sets; no run was in progress.
+
+## Phase 3: hand calculations and solver verification
+
+### 2026-11-26 to 2026-11-28: Steps 1 to 3
+
+- `docs/phase3_preregistration.md` (`ae4ef1f3f1dd...`) and `docs/phase3_plan.md` were locked and hashed
+  above at `2026-11-26T06:16Z` prior to any Phase 3 calculation.
+- `phase3/hand_calcs.py` ran after the hash was recorded and wrote `results/phase3/hand_calcs.md` and
+  `results/phase3/hand_calcs.json` (tributary loads within 1 to 2 % of NIST Floor-8 ANSYS loads; double-span
+  bridging and falling-floor impact energy bounds; AISC 360 E3 critical unbraced storey counts for Columns
+  79, 80, 81, 76, 77, 78; Truss 2 east-support loss check).
+- `wtc7/xfe` (`wtc7/xfe/kernel.c`, `wtc7/xfe/__init__.py`) was extended with 3D co-rotational elastoplastic
+  fibre beam-columns (3-point Gauss-Lobatto x 32-fibre sections, exact Rodrigues nodal orientation tracking,
+  smooth removal multiplier `bfac`), coupled 6-DOF breakable connections and two-storey column splices, and
+  mass-conserving node-to-floor impact contact.
+- All 8 closed-form Phase 3 checks (`tests/test_phase3_xfe.py`) and all 41 Phase 1 tests pass (`49 passed`).
+- Independent 3D frame sudden center-column removal benchmark (`phase3/verify_benchmark.py` ->
+  `results/phase3/verification.md`): `wtc7.xfe` (1.45 s wall time, energy balance error `0.03 %`) matches
+  CalculiX 2.20 (`B31`, `*DYNAMIC`) within **4.08 %** at Floor 1 and **4.07 %** at the roof (inside the
+  pre-registered `10 %` gate).

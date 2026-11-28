@@ -50,7 +50,8 @@ def load_kernel():
                                  C.c_void_p, C.c_int, _dp, _dp, C.c_double, C.c_double,
                                  _dp, _dp, _dp, _dp, _dp, _dp]
     lib.gather.argtypes = [C.c_int, _ip, _ip, _dp, _dp]
-    lib.integrate.argtypes = [C.c_int, _dp, _dp, _dp, _dp, _dp, C.c_double, _dp, _dp, _up, _dp,
+    lib.gather_add.argtypes = [C.c_int, _ip, _ip, _dp, _dp, C.c_int]
+    lib.integrate.argtypes = [C.c_int, _dp, _dp, _dp, _dp, _dp, _dp, C.c_double, _dp, _dp, _up, _dp,
                               C.c_int, _ip, _ip, _dp, C.c_double, C.c_double, _dp]
     lib.contact_plane.argtypes = [C.c_int, _ip, _dp, _dp, _dp, _dp, _dp, C.c_double, C.c_double,
                                   _dp, C.c_double, C.c_double, _dp, _dp, _dp]
@@ -59,6 +60,15 @@ def load_kernel():
                                     _dp, _dp, _dp]
     lib.springs.argtypes = [C.c_int, _ip, _dp, _ip, _dp, _dp, _dp, _dp, _ip, _ip, _dp, _dp, _dp, _dp, _dp,
                             _up, _dp, _dp, _dp]
+    lib.beam_forces.argtypes = [C.c_int, _ip, _ip, _ip, _ip, _dp, _dp, _dp, _dp, _dp, _dp,
+                                _dp, _dp, C.c_void_p, C.c_int, _dp, _dp, _dp, _dp,
+                                _dp, _dp, _dp, _dp, _dp, _dp, _dp, _dp]
+    lib.joints.argtypes = [C.c_int, _ip, _ip, _ip, _dp, _dp, _dp,
+                           _dp, _dp, _dp, _dp, _dp, _dp, _dp,
+                           _dp, _dp, _dp, _dp, _up, _dp, _dp, _dp, _dp, _dp]
+    lib.contact_impact.argtypes = [C.c_int, _ip, _ip, _dp, _dp, _dp, _dp, _dp, _dp,
+                                   _dp, _dp, C.c_double, C.c_double, _dp, C.c_double, C.c_double,
+                                   _dp, _dp, _dp]
     lib.stress_update.argtypes = [C.c_void_p, C.c_int, C.c_double, C.c_double, _dp, _dp, C.c_double]
     lib.stress_update.restype = C.c_double
     lib.set_threads.argtypes = [C.c_int]
@@ -143,6 +153,221 @@ class PlaneContact:
     out: np.ndarray = field(default_factory=lambda: np.zeros(5))
 
 
+NFIB = 32
+
+
+@dataclass
+class BeamSection:
+    """3D fibre beam-column cross section (padded to NFIB = 32 fibres)."""
+    name: str
+    yf: np.ndarray      # (NFIB,) weak-axis fibre coords (along e2, across flange width)
+    zf: np.ndarray      # (NFIB,) strong-axis fibre coords (along e3, along web depth)
+    Af: np.ndarray      # (NFIB,) fibre areas, in^2
+    J: float            # Saint-Venant torsional constant, in^4
+    depth: float = 0.0
+    width: float = 0.0
+
+    def __post_init__(self):
+        yf = np.asarray(self.yf, float).ravel()
+        zf = np.asarray(self.zf, float).ravel()
+        Af = np.asarray(self.Af, float).ravel()
+        if len(Af) > NFIB:
+            raise ValueError(f"BeamSection {self.name} has {len(Af)} > {NFIB} fibres")
+        pad = NFIB - len(Af)
+        if pad > 0:
+            yf = np.pad(yf, (0, pad))
+            zf = np.pad(zf, (0, pad))
+            Af = np.pad(Af, (0, pad))
+        self.yf = np.ascontiguousarray(yf)
+        self.zf = np.ascontiguousarray(zf)
+        self.Af = np.ascontiguousarray(Af)
+        self.A = float(self.Af.sum())
+        self.Ix = float((self.zf**2 * self.Af).sum())
+        self.Iy = float((self.yf**2 * self.Af).sum())
+
+
+def rect_beam_section(name: str, b: float, h: float) -> BeamSection:
+    """Exact rectangular b (width along e2) x h (depth along e3) fibre section.
+    Splits [-h/2, 0] and [0, h/2] into 8 Gauss points each x 2 Gauss points across [-b/2, b/2] = 32 fibres,
+    reproducing A, Ix, Iy, Zx and Zy to machine precision."""
+    xi8, w8 = np.polynomial.legendre.leggauss(8)
+    xi2, w2 = np.polynomial.legendre.leggauss(2)
+    z_neg = -0.25 * h + 0.25 * h * xi8
+    z_pos = +0.25 * h + 0.25 * h * xi8
+    zs = np.concatenate([z_neg, z_pos])
+    wz = np.concatenate([0.25 * h * w8, 0.25 * h * w8])
+    ys = 0.5 * b * xi2
+    wy = 0.5 * b * w2
+    Y, Z = np.meshgrid(ys, zs, indexing="ij")
+    A = np.outer(wy, wz)
+    a_long, a_short = max(b, h), min(b, h)
+    r = a_short / a_long
+    J = a_long * (a_short**3) * (1.0 / 3.0 - 0.21 * r * (1.0 - (r**4) / 12.0))
+    return BeamSection(name, Y.ravel(), Z.ravel(), A.ravel(), float(J), depth=h, width=b)
+
+
+def w_beam_section(name: str, shape_or_name, kind: str = "bare", pw: float = 0.0, pt: float = 0.0) -> BeamSection:
+    """W-shape (bare, or built-up with two 'side' cover plates or 'web' plates of pw x pt in.).
+    Reproduces exact A, Ix, Iy and accurate plastic moduli Zx, Zy in <= 32 fibres."""
+    from wtc7.sections import shape as get_shape
+    s = get_shape(shape_or_name) if isinstance(shape_or_name, str) else shape_or_name
+    edges_y = np.linspace(-s.bf / 2.0, s.bf / 2.0, 9)
+    yc = 0.5 * (edges_y[:-1] + edges_y[1:])
+    afl = s.tf * np.diff(edges_y)
+    afl *= s.Iy / (2.0 * float((afl * yc**2).sum()))
+    a_web_tot = max(s.A - 2.0 * float(afl.sum()), 1e-6)
+    hw = max(s.d - 2.0 * s.tf, 0.1 * s.d)
+    edges_z = np.linspace(-hw / 2.0, hw / 2.0, 9)
+    zw = 0.5 * (edges_z[:-1] + edges_z[1:])
+    aw = np.full(8, a_web_tot / 8.0)
+    ix_rem = max(s.Ix - float((aw * zw**2).sum()), 1e-6)
+    zfl = np.sqrt(ix_rem / (2.0 * float(afl.sum())))
+
+    yf = np.concatenate([yc, yc, np.zeros(8)])
+    zf = np.concatenate([np.full(8, zfl), np.full(8, -zfl), zw])
+    Af = np.concatenate([afl, afl, aw])
+    J = float(s.J)
+    width = float(s.bf)
+    depth = float(s.d)
+
+    if kind in ("side", "web") and pw > 0.0 and pt > 0.0:
+        edges_p = np.linspace(-pw / 2.0, pw / 2.0, 5)
+        zp = 0.5 * (edges_p[:-1] + edges_p[1:]) * (4.0 / np.sqrt(15.0))  # exact pt*pw^3/12 with 4 strips
+        ap = np.full(4, 0.25 * pw * pt)
+        xc = (s.bf / 2.0 + pt / 2.0) if kind == "side" else (s.tw / 2.0 + pt / 2.0)
+        y_eff = np.sqrt(xc**2 + (pt**2) / 12.0)
+        yf = np.concatenate([yf, np.full(4, -y_eff), np.full(4, +y_eff)])
+        zf = np.concatenate([zf, zp, zp])
+        Af = np.concatenate([Af, ap, ap])
+        if kind == "side":
+            # Closed box cell formed by flanges + side cover plates (Bredt torsion)
+            a_enc = (s.bf + pt) * max(s.d - s.tf, 1.0)
+            perim_t = 2.0 * (s.bf / max(s.tf, 0.1)) + 2.0 * (max(s.d - s.tf, 1.0) / pt)
+            J += 4.0 * (a_enc**2) / perim_t
+            width = s.bf + 2.0 * pt
+            depth = max(s.d, pw)
+        else:
+            J += 2.0 * pw * (pt**3) / 3.0
+    return BeamSection(name, yf, zf, Af, J, depth=depth, width=width)
+
+
+@dataclass
+class ImpactContact:
+    """Mass-conserving node-to-master-patch (1 to 4 lower nodes, or fixed floor point) impact contact."""
+    name: str
+    snode: np.ndarray     # (ni,) int32 upper/falling nodes
+    mnode: np.ndarray     # (ni, 4) int32 lower/receiving nodes (-1 padded; mnode[:,0] < 0 => fixed mpos)
+    mw: np.ndarray        # (ni, 4) interpolation weights summing to 1
+    mpos: np.ndarray      # (ni, 3) fixed points if mnode[:,0] < 0
+    nrm: np.ndarray       # (ni, 3) unit contact normals (master -> slave)
+    clr: np.ndarray       # (ni,) clearance offset along nrm
+    kn: np.ndarray        # (ni,) normal penalty stiffness, kip/in.
+    meff: np.ndarray      # (ni,) two-body reduced mass, kip s^2/in.
+    ktf: float
+    mu: float
+    cn: np.ndarray        # (ni,) normal viscous damping, kip s/in.
+    gmax: float = 60.0
+    ft: np.ndarray = None
+    out: np.ndarray = field(default_factory=lambda: np.zeros(6))
+
+
+class JointSet:
+    """Coupled 6-DOF breakable connections & column splices (see kernel.c joints()).
+
+    jkind:
+      0 = simple shear (F, K, H, STP): coupled tension-shear bolt/weld fracture -> detached (state 2)
+      1 = seated (STC, SWC): bolt fracture -> seat-bearing state 1; walk-off (u1 > walk_ax or |u2| > walk_lat) -> state 2
+      2 = moment connection (MC): elastoplastic bending (kr, mpcap20) + fracture rotation thu or bolt/weld fracture -> state 2
+      3 = column splice: milled compression bearing (u1 < 0) + splice plate tension/shear/bending; plate fracture -> state 1,
+          lateral shear offset > walk_lat -> state 2
+    """
+
+    def __init__(self, names, na, nb, kind, e10, e20, kt, kc, kv, ncap20, vcap20, x0,
+                 pB=None, gap_c=0.0, walk_ax=6.25, walk_lat=5.5, kr=0.0, mpcap20=0.0, thu=0.0,
+                 tgroup=0, factor_fn=None, initial_state=0):
+        self.names = list(names)
+        n = len(self.names)
+        self.na = np.ascontiguousarray(np.broadcast_to(np.asarray(na, np.int32), (n,)).copy())
+        self.nb = np.ascontiguousarray(np.broadcast_to(np.asarray(nb, np.int32), (n,)).copy())
+        self.kind = np.ascontiguousarray(np.broadcast_to(np.asarray(kind, np.int32), (n,)).copy())
+        if pB is None:
+            pB_arr = np.zeros((n, 3))
+            neg = self.nb < 0
+            if neg.any():
+                pB_arr[neg] = x0[self.na[neg]]
+        else:
+            pB_arr = np.broadcast_to(np.asarray(pB, float), (n, 3)).copy()
+        self.pB = np.ascontiguousarray(pB_arr)
+
+        xb0 = np.where((self.nb >= 0)[:, None], x0[np.maximum(self.nb, 0)], self.pB)
+        self.r0 = np.ascontiguousarray(x0[self.na] - xb0)
+
+        e1 = np.broadcast_to(np.asarray(e10, float), (n, 3)).copy()
+        e1 /= np.linalg.norm(e1, axis=1, keepdims=True)
+        e2 = np.broadcast_to(np.asarray(e20, float), (n, 3)).copy()
+        e2 = e2 - np.sum(e2 * e1, axis=1, keepdims=True) * e1
+        e2 /= np.linalg.norm(e2, axis=1, keepdims=True)
+        e3 = np.cross(e1, e2)
+        self.je0 = np.ascontiguousarray(np.hstack([e1, e2, e3]))
+
+        def _arr(v):
+            return np.ascontiguousarray(np.broadcast_to(np.asarray(v, float), (n,)).copy())
+
+        self.kt, self.kc, self.kv = _arr(kt), _arr(kc), _arr(kv)
+        self.gap_c, self.walk_ax, self.walk_lat = _arr(gap_c), _arr(walk_ax), _arr(walk_lat)
+        self.kr, self.thu = _arr(kr), _arr(thu)
+        self.ncap20, self.vcap20, self.mpcap20 = _arr(ncap20), _arr(vcap20), _arr(mpcap20)
+        self.ncap, self.vcap, self.mpcap = self.ncap20.copy(), self.vcap20.copy(), self.mpcap20.copy()
+        self.tgroup = np.ascontiguousarray(np.broadcast_to(np.asarray(tgroup, np.int32), (n,)).copy())
+        self.factor_fn = factor_fn
+        self.state = np.ascontiguousarray(np.broadcast_to(np.asarray(initial_state, np.uint8), (n,)).copy())
+        self.jq = np.zeros((n, 4))
+        self.fsv = np.zeros((n, 8))
+        self.lost_energy = 0.0
+        self.break_time = np.full(n, np.nan)
+        self.detach_time = np.full(n, np.nan)
+
+    def apply(self, model, Tg):
+        if self.factor_fn is not None:
+            T = Tg[np.minimum(self.tgroup, len(Tg) - 1)]
+            fac = np.asarray(self.factor_fn(T), float)
+            np.multiply(self.ncap20, fac, out=self.ncap)
+            np.multiply(self.vcap20, fac, out=self.vcap)
+            np.multiply(self.mpcap20, fac, out=self.mpcap)
+        else:
+            self.ncap[:] = self.ncap20
+            self.vcap[:] = self.vcap20
+            self.mpcap[:] = self.mpcap20
+        prev = self.state.copy()
+        model.lib.joints(
+            len(self.names), ptr(self.na), ptr(self.nb), ptr(self.kind), ptr(self.pB),
+            ptr(self.r0), ptr(self.je0),
+            ptr(self.kt), ptr(self.kc), ptr(self.kv), ptr(self.gap_c),
+            ptr(self.walk_ax), ptr(self.walk_lat), ptr(self.kr),
+            ptr(self.ncap), ptr(self.vcap), ptr(self.mpcap), ptr(self.thu),
+            ptr(self.state), ptr(self.jq), ptr(model.x), ptr(model.Rnode),
+            ptr(model.fint), ptr(self.fsv)
+        )
+        lost_step = float(self.fsv[:, 7].sum())
+        if lost_step != 0.0:
+            self.lost_energy += lost_step
+        b1 = np.nonzero((prev == 0) & (self.state >= 1))[0]
+        if len(b1):
+            self.break_time[b1] = model.t
+        b2 = np.nonzero((prev < 2) & (self.state == 2))[0]
+        if len(b2):
+            self.detach_time[b2] = model.t
+
+    def stored_energy(self) -> float:
+        return float(self.fsv[:, 5].sum())
+
+    def plastic_work(self) -> float:
+        return float(self.fsv[:, 6].sum())
+
+    def internal_work(self) -> float:
+        return float(self.fsv[:, 5].sum() + self.fsv[:, 6].sum())
+
+
 @dataclass
 class SurfaceContact:
     name: str
@@ -163,19 +388,26 @@ class SurfaceContact:
 
 
 class Model:
-    """Explicit shell model. Build with add_* calls, then finalize() and run()."""
+    """Explicit shell and 3D fibre beam-column model. Build with add_* calls, then finalize() and run()."""
 
     def __init__(self, nip=5, qhg=0.05, kappa=5.0 / 6.0, contact_alpha=0.1, contact_zeta=0.1):
         self.nip, self.qhg, self.kappa = nip, qhg, kappa
         self.contact_alpha, self.contact_zeta = contact_alpha, contact_zeta
         self.no_dt_parts = ("fin",)         # small plates that are mass-scaled rather than setting the time step
         self._x, self._conn, self._h, self._mat, self._tg, self._part = [], [], [], [], [], []
+        self._bconn, self._bsec, self._bmat, self._btg, self._bup = [], [], [], [], []
+        self.beam_sections: list[BeamSection] = []
+        self.sec_index = {}
+        self.beam_parts = {}
+        self._added_nodal_mass = []         # list of (node_idx, m, rin)
         self.materials: list[Material] = []
         self.mat_index = {}
         self.parts = {}
         self.planes: list[PlaneContact] = []
         self.surfaces: list[SurfaceContact] = []
+        self.impacts: list[ImpactContact] = []
         self.spring_sets = []
+        self.joint_sets: list[JointSet] = []
         self._fixed = []
         self._presc = []
         self._cons = []
@@ -194,6 +426,11 @@ class Model:
         self.materials.append(m)
         return self.mat_index[m.name]
 
+    def add_beam_section(self, s: BeamSection):
+        self.sec_index[s.name] = len(self.beam_sections)
+        self.beam_sections.append(s)
+        return self.sec_index[s.name]
+
     def add_shells(self, conn, h, mat, tgroup, part):
         conn = np.atleast_2d(np.asarray(conn, np.int32))
         start = sum(len(c) for c in self._conn)
@@ -205,6 +442,38 @@ class Model:
         ids = np.arange(start, start + n, dtype=np.int32)
         self.parts.setdefault(part, []).append(ids)
         return ids
+
+    def add_beams(self, conn, section, mat, tgroup=0, part="beam", up=None):
+        """Add 2-node 3D co-rotational fibre beam-column elements.
+        `up` sets the reference strong-axis (+e3, web depth) direction; defaults to +Z for
+        non-vertical members and +X for vertical columns."""
+        conn = np.atleast_2d(np.asarray(conn, np.int32))
+        start = sum(len(c) for c in self._bconn)
+        n = len(conn)
+        sec_id = self.sec_index[section] if isinstance(section, str) else int(section)
+        mat_id = self.mat_index[mat] if isinstance(mat, str) else int(mat)
+        self._bconn.append(conn)
+        self._bsec.append(np.full(n, sec_id, np.int32))
+        self._bmat.append(np.full(n, mat_id, np.int32))
+        self._btg.append(np.broadcast_to(np.asarray(tgroup, np.int32), (n,)).copy())
+        if up is None:
+            up_arr = np.full((n, 3), np.nan)
+        else:
+            up_arr = np.broadcast_to(np.asarray(up, float), (n, 3)).copy()
+        self._bup.append(up_arr)
+        ids = np.arange(start, start + n, dtype=np.int32)
+        self.beam_parts.setdefault(part, []).append(ids)
+        return ids
+
+    def add_mass(self, nodes, m, rinert=0.0):
+        """Add physical lumped translational mass (kip s^2/in.) and optional rotary inertia to nodes."""
+        nodes = np.atleast_1d(np.asarray(nodes, np.int32))
+        m_arr = np.broadcast_to(np.asarray(m, float), nodes.shape).copy()
+        r_arr = np.broadcast_to(np.asarray(rinert, float), nodes.shape).copy()
+        self._added_nodal_mass.append((nodes, m_arr, r_arr))
+
+    def beam_part(self, name):
+        return np.concatenate(self.beam_parts[name])
 
     def fix(self, nodes, dofs=(0, 1, 2, 3, 4, 5)):
         for n in np.atleast_1d(nodes):
@@ -231,58 +500,176 @@ class Model:
     def finalize(self, dt_safety=0.9, dt_min=None, rot_factor=0.125):
         """Lumped masses, rotary inertia, CSR gather table, time step.
 
-        rot_factor: nodal rotary inertia = mass x max(h^2/12, rot_factor x element area),
-        so rotations do not govern the time step. dt_min: elements whose stable step is
-        below it get added mass (reported in self.added_mass).
+        Supports shell-only, beam-only, and hybrid shell+beam models.
         """
+        self.dt_safety = dt_safety
         self.x0 = np.ascontiguousarray(np.concatenate(self._x))
-        self.conn = np.ascontiguousarray(np.concatenate(self._conn))
-        self.h = np.concatenate(self._h)
-        self.mat = np.concatenate(self._mat)
-        self.tg = np.concatenate(self._tg)
-        nn, ne = len(self.x0), len(self.conn)
-        self.nn, self.ne = nn, ne
-        X = self.x0[self.conn]
-        d1 = np.linalg.norm(X[:, 2] - X[:, 0], axis=1)
-        d2 = np.linalg.norm(X[:, 3] - X[:, 1], axis=1)
-        area = 0.5 * np.linalg.norm(np.cross(X[:, 2] - X[:, 0], X[:, 3] - X[:, 1]), axis=1)
-        self.area = area
-        rho = np.array([m.rho for m in self.materials])[self.mat]
-        E20 = np.array([m.E.max() for m in self.materials])[self.mat]
-        nu = np.array([m.nu for m in self.materials])[self.mat]
-        c = np.sqrt(E20 / (rho * (1 - nu**2)))
-        Ls = area / np.maximum(d1, d2)
-        dte = Ls / c
-        me = rho * self.h * area
-        scale = np.ones(ne)
-        if isinstance(dt_min, str) and dt_min == "auto":
-            # the smallest per-part median: only irregular elements (skewed ends, small plates) get added mass
-            dt_min = min(float(np.median(dte[np.concatenate(v)])) for k, v in self.parts.items()
-                         if not k.startswith(self.no_dt_parts))
-        self.dt_min = dt_min
-        if dt_min is not None:
-            small = dte < dt_min
-            scale[small] = (dt_min / dte[small]) ** 2
-            dte = np.maximum(dte, dt_min)
-        self.elem_dt = dte
+        nn = len(self.x0)
+        self.nn = nn
+
+        # ---- Shells ----
+        if self._conn:
+            self.conn = np.ascontiguousarray(np.concatenate(self._conn))
+            self.h = np.concatenate(self._h)
+            self.mat = np.concatenate(self._mat)
+            self.tg = np.concatenate(self._tg)
+            ne = len(self.conn)
+        else:
+            self.conn = np.zeros((0, 4), np.int32)
+            self.h = np.zeros(0, float)
+            self.mat = np.zeros(0, np.int32)
+            self.tg = np.zeros(0, np.int32)
+            ne = 0
+        self.ne = ne
+
+        # ---- Beams ----
+        if self._bconn:
+            self.bconn = np.ascontiguousarray(np.concatenate(self._bconn))
+            self.bsec = np.ascontiguousarray(np.concatenate(self._bsec))
+            self.bmat = np.ascontiguousarray(np.concatenate(self._bmat))
+            self.btg = np.ascontiguousarray(np.concatenate(self._btg))
+            bup = np.concatenate(self._bup)
+            nb = len(self.bconn)
+        else:
+            self.bconn = np.zeros((0, 2), np.int32)
+            self.bsec = np.zeros(0, np.int32)
+            self.bmat = np.zeros(0, np.int32)
+            self.btg = np.zeros(0, np.int32)
+            bup = np.zeros((0, 3), float)
+            nb = 0
+        self.nb = nb
+
         self.mass = np.zeros(nn)
         self.mass_phys = np.zeros(nn)
         rin = np.zeros(nn)
-        for I in range(4):
-            np.add.at(self.mass, self.conn[:, I], 0.25 * me * scale)
-            np.add.at(self.mass_phys, self.conn[:, I], 0.25 * me)
-            np.add.at(rin, self.conn[:, I], 0.25 * me * scale * np.maximum(self.h**2 / 12, rot_factor * area))
+        dt_candidates = []
+
+        if ne > 0:
+            X = self.x0[self.conn]
+            d1 = np.linalg.norm(X[:, 2] - X[:, 0], axis=1)
+            d2 = np.linalg.norm(X[:, 3] - X[:, 1], axis=1)
+            area = 0.5 * np.linalg.norm(np.cross(X[:, 2] - X[:, 0], X[:, 3] - X[:, 1]), axis=1)
+            self.area = area
+            rho = np.array([m.rho for m in self.materials])[self.mat]
+            E20 = np.array([m.E.max() for m in self.materials])[self.mat]
+            nu = np.array([m.nu for m in self.materials])[self.mat]
+            c = np.sqrt(E20 / (rho * (1 - nu**2)))
+            Ls = area / np.maximum(d1, d2)
+            dte = Ls / c
+            me = rho * self.h * area
+            scale = np.ones(ne)
+            if isinstance(dt_min, str) and dt_min == "auto":
+                dt_min = min(float(np.median(dte[np.concatenate(v)])) for k, v in self.parts.items()
+                             if not k.startswith(self.no_dt_parts))
+            self.dt_min = dt_min
+            if dt_min is not None:
+                small = dte < dt_min
+                scale[small] = (dt_min / dte[small]) ** 2
+                dte = np.maximum(dte, dt_min)
+            self.elem_dt = dte
+            for I in range(4):
+                np.add.at(self.mass, self.conn[:, I], 0.25 * me * scale)
+                np.add.at(self.mass_phys, self.conn[:, I], 0.25 * me)
+                np.add.at(rin, self.conn[:, I], 0.25 * me * scale * np.maximum(self.h**2 / 12, rot_factor * area))
+            dt_candidates.append(float(dte.min()))
+            slots = np.argsort(self.conn.ravel(), kind="stable")
+            counts = np.bincount(self.conn.ravel(), minlength=nn)
+            self.g_ptr = np.concatenate([[0], np.cumsum(counts)]).astype(np.int32)
+            self.g_idx = slots.astype(np.int32)
+        else:
+            self.area = np.zeros(0)
+            self.elem_dt = np.zeros(0)
+            self.dt_min = dt_min if not isinstance(dt_min, str) else None
+            self.g_ptr = np.zeros(nn + 1, np.int32)
+            self.g_idx = np.zeros(0, np.int32)
+
+        if nb > 0:
+            dX = self.x0[self.bconn[:, 1]] - self.x0[self.bconn[:, 0]]
+            L0 = np.linalg.norm(dX, axis=1)
+            self.bL0 = np.ascontiguousarray(L0)
+            e10 = dX / L0[:, None]
+            up_ref = bup.copy()
+            auto = np.isnan(up_ref[:, 0])
+            if auto.any():
+                vert = np.abs(e10[:, 2]) >= 0.99
+                up_def = np.where(vert[:, None], np.array([1.0, 0.0, 0.0]), np.array([0.0, 0.0, 1.0]))
+                up_ref[auto] = up_def[auto]
+            e20 = np.cross(up_ref, e10)
+            n2 = np.linalg.norm(e20, axis=1)
+            bad = n2 < 1e-6
+            if bad.any():
+                alt = np.where((np.abs(e10[:, 0]) < 0.9)[:, None], np.array([1.0, 0.0, 0.0]), np.array([0.0, 1.0, 0.0]))
+                e20[bad] = np.cross(alt[bad], e10[bad])
+                n2 = np.linalg.norm(e20, axis=1)
+            e20 /= n2[:, None]
+            e30 = np.cross(e10, e20)
+            self.be0 = np.ascontiguousarray(np.hstack([e10, e20, e30]))
+
+            sec_A = np.array([s.A for s in self.beam_sections])[self.bsec]
+            sec_Imax = np.array([max(s.Ix, s.Iy) for s in self.beam_sections])[self.bsec]
+            sec_J = np.array([s.J for s in self.beam_sections])[self.bsec]
+            brho = np.array([m.rho for m in self.materials])[self.bmat]
+            bE = np.array([m.E.max() for m in self.materials])[self.bmat]
+            bnu = np.array([m.nu for m in self.materials])[self.bmat]
+            bG = bE / (2.0 * (1.0 + bnu))
+            bc = np.sqrt(bE / brho)
+            rmax = np.sqrt(np.maximum(sec_Imax / np.maximum(sec_A, 1e-12), 1e-12))
+            mb = brho * sec_A * L0
+            dt_ax = L0 / bc
+            kth_end = np.maximum(6.0 * bE * sec_Imax / L0, 2.0 * bG * sec_J / L0)
+            rin_base = np.maximum(0.5 * mb * (rmax**2 + rot_factor * (L0**2)), kth_end * (dt_ax**2))
+            w2_ax = (2.0 * bc / L0) ** 2
+            w2_tors = (2.0 * bG * sec_J / L0) / rin_base
+            w2_bend = (24.0 * bE * sec_Imax / (L0**3)) / (0.5 * mb) + (6.0 * bE * sec_Imax / L0) / rin_base
+            dtb = 2.0 / np.sqrt(np.maximum(np.maximum(w2_ax, w2_tors), w2_bend))
+            bscale = np.ones(nb)
+            if self.dt_min is not None:
+                small_b = dtb < self.dt_min
+                bscale[small_b] = (self.dt_min / dtb[small_b]) ** 2
+                dtb = np.maximum(dtb, self.dt_min)
+            self.beam_dt = dtb
+            rin_end = rin_base * bscale
+            for I in range(2):
+                np.add.at(self.mass, self.bconn[:, I], 0.5 * mb * bscale)
+                np.add.at(self.mass_phys, self.bconn[:, I], 0.5 * mb)
+                np.add.at(rin, self.bconn[:, I], rin_end)
+            dt_candidates.append(float(dtb.min()))
+
+            bslots = np.argsort(self.bconn.ravel(), kind="stable")
+            bcounts = np.bincount(self.bconn.ravel(), minlength=nn)
+            self.bg_ptr = np.concatenate([[0], np.cumsum(bcounts)]).astype(np.int32)
+            self.bg_idx = bslots.astype(np.int32)
+
+            nsec = len(self.beam_sections)
+            self.s_yf = np.ascontiguousarray(np.array([s.yf for s in self.beam_sections]))
+            self.s_zf = np.ascontiguousarray(np.array([s.zf for s in self.beam_sections]))
+            self.s_Af = np.ascontiguousarray(np.array([s.Af for s in self.beam_sections]))
+            self.s_J = np.ascontiguousarray(np.array([s.J for s in self.beam_sections], float))
+        else:
+            self.bL0 = np.zeros(0)
+            self.be0 = np.zeros((0, 9))
+            self.beam_dt = np.zeros(0)
+            self.bg_ptr = np.zeros(nn + 1, np.int32)
+            self.bg_idx = np.zeros(0, np.int32)
+            self.s_yf = np.zeros((0, NFIB))
+            self.s_zf = np.zeros((0, NFIB))
+            self.s_Af = np.zeros((0, NFIB))
+            self.s_J = np.zeros(0)
+
+        for nd_i, m_i, r_i in self._added_nodal_mass:
+            np.add.at(self.mass, nd_i, m_i)
+            np.add.at(self.mass_phys, nd_i, m_i)
+            np.add.at(rin, nd_i, r_i)
+
         self.added_mass = float(self.mass.sum() - self.mass_phys.sum())
         orphan = self.mass == 0
         self.mass[orphan] = 1.0
         rin[orphan] = 1.0
+        no_rin = rin == 0
+        rin[no_rin] = self.mass[no_rin]
         self.rinert = rin
-        self.dt = dt_safety * float(dte.min())
-        # gather table
-        slots = np.argsort(self.conn.ravel(), kind="stable")
-        counts = np.bincount(self.conn.ravel(), minlength=nn)
-        self.g_ptr = np.concatenate([[0], np.cumsum(counts)]).astype(np.int32)
-        self.g_idx = slots.astype(np.int32)
+        self.dt = dt_safety * (min(dt_candidates) if dt_candidates else 1e-4)
+
         # constraints
         self.fixmask = np.zeros(nn * 6, np.uint8)
         for n, d in self._fixed:
@@ -309,6 +696,7 @@ class Model:
         self.zeta, self.wz = np.ascontiguousarray(self.zeta, float), np.ascontiguousarray(self.wz, float)
         # state
         self.x = self.x0.copy()
+        self.Rnode = np.ascontiguousarray(np.tile(np.eye(3).ravel(), (nn, 1)))
         self.v = np.zeros((nn, 3))
         self.w = np.zeros((nn, 3))
         self.sig = np.zeros((ne, self.nip, 3))
@@ -316,16 +704,29 @@ class Model:
         self.qs = np.zeros((ne, 2))
         self.hgs = np.zeros((ne, 5))
         self.fe = np.zeros((ne, 24))
+        # beam state
+        self.bfac = np.ones(nb, float)
+        self.bfac_prev = np.ones(nb, float)
+        self.bq = np.zeros((nb, 6))
+        self.bsig = np.zeros((nb, 3, NFIB))
+        self.bepsp = np.zeros((nb, 3, NFIB))
+        self.bm1 = np.zeros(nb)
+        self.fbe = np.zeros((nb, 12))
+        self.bdiag = np.zeros((nb, 6))
+        self.removed_energy = np.zeros(1)
+
         self.fint = np.zeros((nn, 6))
         self.fpat = np.zeros((nn, 6))
         self._prepared = False
-        self.energy = np.zeros(4)          # IE, hourglass, plastic, thermal input
+        self.energy = np.zeros(4)          # IE (elastic + plastic), hourglass, plastic, thermal input
         self.kinout = np.zeros(2)          # KE, damping work
         self.w_ext = 0.0
+        self.ke0 = None
         self.t = 0.0
         self.cycle = 0
         self.damping = 0.0
         self._pat_idx = None
+        self._pat_rot_idx = None
         return self
 
     # ---------------------------------------------------------------- contact
@@ -441,25 +842,132 @@ class Model:
             res.append(elems[order[0]] if best is None else best)
         return np.array(res)
 
+    def add_impact(self, name, snode, mnode=None, mw=None, mpos=None, nrm=(0.0, 0.0, 1.0), clr=0.0,
+                   mu=0.0, ktf=1.0, alpha=None, zeta=None, gmax=60.0):
+        """Add mass-conserving node-to-master-patch (or node-to-node / fixed floor) impact contact.
+        Uses the two-body reduced mass m_eff = (1/m_s + sum(w_I^2 / m_I))^-1 so impact never
+        destabilizes the explicit time step regardless of falling-to-receiving mass ratio."""
+        snode = np.atleast_1d(np.asarray(snode, np.int32))
+        ni = len(snode)
+        if mnode is not None:
+            mn = np.asarray(mnode, np.int32)
+            if mn.ndim == 1:
+                mn_pad = np.full((ni, 4), -1, np.int32)
+                mn_pad[:, 0] = mn
+                mw_pad = np.zeros((ni, 4), float)
+                mw_pad[:, 0] = 1.0
+            else:
+                mn_pad = np.full((ni, 4), -1, np.int32)
+                mn_pad[:, :mn.shape[1]] = mn
+                if mw is None:
+                    cnt = (mn_pad >= 0).sum(axis=1, keepdims=True)
+                    mw_pad = np.where(mn_pad >= 0, 1.0 / np.maximum(cnt, 1), 0.0)
+                else:
+                    mw_pad = np.zeros((ni, 4), float)
+                    mw_arr = np.asarray(mw, float)
+                    mw_pad[:, :mw_arr.shape[1]] = mw_arr
+            mpos_arr = np.zeros((ni, 3), float)
+        else:
+            mn_pad = np.full((ni, 4), -1, np.int32)
+            mw_pad = np.zeros((ni, 4), float)
+            mpos_arr = np.broadcast_to(np.asarray(mpos, float), (ni, 3)).copy()
+
+        inv_m = 1.0 / self.mass[snode]
+        has_m = mn_pad[:, 0] >= 0
+        if has_m.any():
+            for I in range(4):
+                valid = has_m & (mn_pad[:, I] >= 0)
+                if valid.any():
+                    inv_m[valid] += (mw_pad[valid, I] ** 2) / self.mass[mn_pad[valid, I]]
+        m_eff = 1.0 / inv_m
+        kn, cn = self.penalty(m_eff, alpha, zeta)
+        nrm_arr = np.broadcast_to(np.asarray(nrm, float), (ni, 3)).copy()
+        nrm_arr /= np.linalg.norm(nrm_arr, axis=1, keepdims=True)
+        clr_arr = np.broadcast_to(np.asarray(clr, float), (ni,)).copy()
+        ic = ImpactContact(
+            name, np.ascontiguousarray(snode), np.ascontiguousarray(mn_pad),
+            np.ascontiguousarray(mw_pad), np.ascontiguousarray(mpos_arr),
+            np.ascontiguousarray(nrm_arr), np.ascontiguousarray(clr_arr),
+            np.ascontiguousarray(kn), np.ascontiguousarray(m_eff), float(ktf), float(mu), np.ascontiguousarray(cn),
+            float(gmax), np.zeros((ni, 3))
+        )
+        self.impacts.append(ic)
+        self._prepared = False
+        return ic
+
+    def add_joint_set(self, js: JointSet, adjust_dt=True):
+        """Attach a JointSet after finalize(); optionally shrinks self.dt if any joint stiffness governs."""
+        if adjust_dt and hasattr(self, "mass"):
+            inv_m = 1.0 / self.mass[js.na]
+            has_b = js.nb >= 0
+            if has_b.any():
+                inv_m[has_b] += 1.0 / self.mass[js.nb[has_b]]
+            m_eff = 1.0 / inv_m
+            k_max = np.maximum(np.maximum(js.kt, js.kc), js.kv)
+            pos = k_max > 0
+            if pos.any():
+                dt_tr = getattr(self, "dt_safety", 0.9) * 2.0 * np.sqrt(m_eff[pos] / k_max[pos])
+                self.dt = min(self.dt, float(dt_tr.min()))
+            rot_pos = js.kr > 0
+            if rot_pos.any():
+                inv_I = 1.0 / self.rinert[js.na]
+                if has_b.any():
+                    inv_I[has_b] += 1.0 / self.rinert[js.nb[has_b]]
+                I_eff = 1.0 / inv_I
+                dt_rot = getattr(self, "dt_safety", 0.9) * 2.0 * np.sqrt(I_eff[rot_pos] / js.kr[rot_pos])
+                self.dt = min(self.dt, float(dt_rot.min()))
+        self.joint_sets.append(js)
+        self._prepared = False
+        return js
+
     # ---------------------------------------------------------------- running
     def set_load_pattern(self, f):
-        """Load pattern (nn, 3) of nodal forces, scaled by lam(t) during the run."""
-        f = np.asarray(f, float).reshape(self.nn, 3)
-        self.fpat[:, :3] = f
-        nz = np.nonzero(f.ravel())[0]
-        self._pat_idx, self._pat_val = nz, f.ravel()[nz]
+        """Load pattern (nn, 3) of nodal forces or (nn, 6) of forces+moments, scaled by lam(t)."""
+        f = np.asarray(f, float)
+        self.fpat.fill(0.0)
+        if f.ndim == 2 and f.shape[1] == 6:
+            self.fpat[:, :] = f
+            f_tr, f_rot = f[:, :3].ravel(), f[:, 3:].ravel()
+            nz_r = np.nonzero(f_rot)[0]
+            self._pat_rot_idx = nz_r if len(nz_r) else None
+            self._pat_rot_val = f_rot[nz_r] if len(nz_r) else None
+        else:
+            f3 = f.reshape(self.nn, 3)
+            self.fpat[:, :3] = f3
+            f_tr = f3.ravel()
+            self._pat_rot_idx, self._pat_rot_val = None, None
+        nz = np.nonzero(f_tr)[0]
+        self._pat_idx = nz if len(nz) else None
+        self._pat_val = f_tr[nz] if len(nz) else None
 
     def _prepare(self):
-        self.Tnow = np.zeros(int(self.tg.max()) + 1 if self.ne else 1)
+        max_tg = 0
+        if self.ne:
+            max_tg = max(max_tg, int(self.tg.max()))
+        if self.nb:
+            max_tg = max(max_tg, int(self.btg.max()))
+        for js in self.joint_sets:
+            if len(js.tgroup):
+                max_tg = max(max_tg, int(js.tgroup.max()))
+        self.Tnow = np.zeros(max_tg + 1)
         self.Tprev = np.zeros_like(self.Tnow)
         self._args_shell = (self.ne, ptr(self.conn), ptr(self.h), ptr(self.mat), ptr(self.tg), ptr(self.x),
                             ptr(self.v), ptr(self.w), 0.0, ptr(self.Tnow), ptr(self.Tprev), C.byref(self.matstruct),
                             self.nip, ptr(self.zeta), ptr(self.wz), self.qhg, self.kappa, ptr(self.sig),
                             ptr(self.epsp), ptr(self.qs), ptr(self.hgs), ptr(self.fe), ptr(self.energy))
         self._args_gather = (self.nn, ptr(self.g_ptr), ptr(self.g_idx), ptr(self.fe), ptr(self.fint))
-        self._args_int = [self.nn, ptr(self.x), ptr(self.v), ptr(self.w), ptr(self.fint), ptr(self.fpat), 0.0,
-                          ptr(self.mass), ptr(self.rinert), ptr(self.fixmask), ptr(self.vpres), len(self.c_node),
-                          ptr(self.c_node), ptr(self.c_type), ptr(self.c_dir), 0.0, 0.0, ptr(self.kinout)]
+        self._args_beam = (self.nb, ptr(self.bconn), ptr(self.bsec), ptr(self.bmat), ptr(self.btg),
+                           ptr(self.bL0), ptr(self.be0), ptr(self.bfac), ptr(self.bfac_prev),
+                           ptr(self.x), ptr(self.Rnode), ptr(self.Tnow), ptr(self.Tprev), C.byref(self.matstruct),
+                           NFIB, ptr(self.s_yf), ptr(self.s_zf), ptr(self.s_Af), ptr(self.s_J),
+                           ptr(self.bq), ptr(self.bsig), ptr(self.bepsp), ptr(self.bm1),
+                           ptr(self.fbe), ptr(self.bdiag), ptr(self.energy), ptr(self.removed_energy))
+        self._args_bgather = (self.nn, ptr(self.bg_ptr), ptr(self.bg_idx), ptr(self.fbe), ptr(self.fint),
+                              0 if self.ne > 0 else 1)
+        self._args_int = [self.nn, ptr(self.x), ptr(self.Rnode), ptr(self.v), ptr(self.w), ptr(self.fint),
+                          ptr(self.fpat), 0.0, ptr(self.mass), ptr(self.rinert), ptr(self.fixmask), ptr(self.vpres),
+                          len(self.c_node), ptr(self.c_node), ptr(self.c_type), ptr(self.c_dir), 0.0, 0.0,
+                          ptr(self.kinout)]
         self._args_planes = [(len(c.nodes), ptr(c.nodes), ptr(c.off), ptr(c.P), ptr(self.x), ptr(self.v), ptr(c.kn),
                               c.ktf, c.mu, ptr(c.cn), None, c.gmax, ptr(c.ft), ptr(self.fint), ptr(c.out))
                              for c in self.planes]
@@ -467,16 +975,28 @@ class Model:
                             ptr(c.nbr), ptr(self.h), c.mfac, ptr(c.dref), ptr(self.x), ptr(self.v), ptr(c.kn), c.ktf,
                             c.mu, ptr(c.cn), None, c.gmax, ptr(c.ft), ptr(self.fint), ptr(c.out))
                            for c in self.surfaces]
+        self._args_impacts = [(len(c.snode), ptr(c.snode), ptr(c.mnode), ptr(c.mw), ptr(c.mpos), ptr(c.nrm),
+                               ptr(c.clr), ptr(self.x), ptr(self.v), ptr(c.kn), ptr(c.meff), c.ktf, c.mu, ptr(c.cn),
+                               None, c.gmax, ptr(c.ft), ptr(self.fint), ptr(c.out))
+                              for c in self.impacts]
         self._prepared = True
 
     def step(self, lam):
         """One explicit cycle at time self.t with temperatures self.Tnow (previous: self.Tprev)."""
         L, dt = self.lib, self.dt
-        a = self._args_shell
-        L.shell_forces(*a[:8], dt, *a[9:])
-        L.gather(*self._args_gather)
+        if self.ne > 0:
+            a = self._args_shell
+            L.shell_forces(*a[:8], dt, *a[9:])
+            L.gather(*self._args_gather)
+        if self.nb > 0:
+            L.beam_forces(*self._args_beam)
+            L.gather_add(*self._args_bgather)
+        if self.ne == 0 and self.nb == 0:
+            self.fint.fill(0.0)
         for s in self.spring_sets:
             s.apply(self, self.Tnow)
+        for j in self.joint_sets:
+            j.apply(self, self.Tnow)
         for c, a in zip(self.planes, self._args_planes):
             c_ = list(a)
             c_[10] = dt
@@ -485,25 +1005,69 @@ class Model:
             c_ = list(a)
             c_[16] = dt
             L.contact_surface(*c_)
-        work = self._pat_idx is not None and lam != 0.0
-        if work:
+        for c, a in zip(self.impacts, self._args_impacts):
+            c_ = list(a)
+            c_[14] = dt
+            L.contact_impact(*c_)
+        work_tr = self._pat_idx is not None and lam != 0.0
+        work_rot = self._pat_rot_idx is not None and lam != 0.0
+        if work_tr:
             v_old = self.v.ravel()[self._pat_idx]
+        if work_rot:
+            w_old = self.w.ravel()[self._pat_rot_idx]
         ai = self._args_int
-        ai[6], ai[15], ai[16] = lam, self.damping, dt
+        ai[7], ai[16], ai[17] = lam, self.damping, dt
         L.integrate(*ai)
-        if work:
+        if work_tr:
             self.w_ext += lam * float(self._pat_val @ (0.5 * (v_old + self.v.ravel()[self._pat_idx]))) * dt
+        if work_rot:
+            self.w_ext += lam * float(self._pat_rot_val @ (0.5 * (w_old + self.w.ravel()[self._pat_rot_idx]))) * dt
         self.t += dt
         self.cycle += 1
 
-    def run(self, t_end, temps, lam=lambda t: 0.0, monitor=None, every=100, stop=None):
-        """Advance to t_end. temps(t) -> array of group temperatures; lam(t) scales the load pattern;
-        monitor(model) is called every `every` cycles; stop(model) -> True ends the run."""
+    def energy_summary(self) -> dict:
+        """Full mechanical + thermal energy ledger for preregistration Section 8 balance checks."""
+        ke0 = 0.0 if self.ke0 is None else float(self.ke0)
+        ke = float(self.kinout[0])
+        damping = float(self.kinout[1])
+        ie_elem = float(self.energy[0] + self.energy[1])  # elastic + plastic + hourglass
+        plastic_elem = float(self.energy[2])
+        e_th = float(self.energy[3])
+        joint_int = sum(s.stored_energy() for s in self.spring_sets) + sum(j.internal_work() for j in self.joint_sets)
+        # Note: removed_energy is already inside cumulative ie_elem (energy[0]), just as plastic_elem is.
+        lost = sum(s.lost_energy for s in self.spring_sets) + sum(j.lost_energy for j in self.joint_sets)
+        c_diss = (sum(float(c.out[3]) for c in self.planes)
+                  + sum(float(c.out[3]) for c in self.surfaces)
+                  + sum(float(c.out[3]) for c in self.impacts))
+        c_el = sum(float(c.out[4]) for c in self.impacts)
+        lhs = ke0 + float(self.w_ext) + e_th
+        rhs = ke + ie_elem + joint_int + c_el + damping + c_diss + lost
+        denom = max(abs(lhs), abs(rhs), 1e-12)
+        return dict(
+            ke0=ke0, w_ext=float(self.w_ext), e_thermal=e_th,
+            ke=ke, ie_elem=ie_elem, plastic_elem=plastic_elem,
+            removed_beam_elem=float(self.removed_energy[0]),
+            joint_int=joint_int, contact_el=c_el,
+            damping=damping, contact_diss=c_diss, lost_energy=lost,
+            lhs=lhs, rhs=rhs, rel_error=abs(lhs - rhs) / denom,
+        )
+
+    def run(self, t_end, temps=None, lam=lambda t: 0.0, monitor=None, every=100, stop=None):
+        """Advance to t_end. temps(t) -> array of group temperatures (defaults to 20 C everywhere);
+        lam(t) scales the load pattern; monitor(model) is called every `every` cycles; stop(model) -> True ends."""
         if not getattr(self, "_prepared", False):
             self._prepare()
-        self.Tprev[:] = temps(self.t)
+        if temps is None:
+            t_const = np.full(len(self.Tnow), 20.0)
+            temps = lambda _t: t_const
+        if self.ke0 is None and self.cycle == 0:
+            self.ke0 = float(0.5 * (self.mass * (self.v**2).sum(axis=1)).sum()
+                             + 0.5 * (self.rinert * (self.w**2).sum(axis=1)).sum())
+        t_init = np.asarray(temps(self.t), float)
+        self.Tprev[:len(t_init)] = t_init
         while self.t < t_end - 0.5 * self.dt:
-            self.Tnow[:] = temps(self.t)
+            t_cur = np.asarray(temps(self.t), float)
+            self.Tnow[:len(t_cur)] = t_cur
             self.step(lam(self.t))
             self.Tprev[:] = self.Tnow
             if monitor is not None and self.cycle % every == 0:

@@ -208,7 +208,7 @@ void shell_forces(int nel, const int *conn, const double *h, const int *mat, con
 {
     double eIE = 0.0, eHG = 0.0, ePL = 0.0, eTH = 0.0;
     /* elastic-check bound per (material, temperature group), squared */
-    enum { MAXM = 16, MAXG = 16 };
+    enum { MAXM = 32, MAXG = 64 };
     double bound2[MAXM][MAXG], bound2t[MAXM][MAXG];
     double Ecur[MAXM][MAXG], Eold[MAXM][MAXG], dthm[MAXM][MAXG];
     int ng = 0;
@@ -350,7 +350,7 @@ void shell_forces(int nel, const int *conn, const double *h, const int *mat, con
     energy[3] += eTH;
 }
 
-/* f (nn*6) = sum of element contributions; ptr/idx: CSR of node -> (4*e + I) */
+/* f (nn*6) = sum of element contributions; ptr/idx: CSR of node -> (npe*e + I) */
 void gather(int nn, const int *ptr, const int *idx, const double *fe, double *f)
 {
 #pragma omp parallel for schedule(static)
@@ -364,12 +364,30 @@ void gather(int nn, const int *ptr, const int *idx, const double *fe, double *f)
     }
 }
 
-/* Central-difference update with mass-proportional damping c (1/s).
+/* Add (or overwrite when zero_first != 0) element nodal forces into f (nn*6). */
+void gather_add(int nn, const int *ptr, const int *idx, const double *fe, double *f, int zero_first)
+{
+#pragma omp parallel for schedule(static)
+    for (int n = 0; n < nn; ++n) {
+        double s[6] = {0, 0, 0, 0, 0, 0};
+        for (int k = ptr[n]; k < ptr[n + 1]; ++k) {
+            const double *p = fe + 6 * (size_t)idx[k];
+            for (int j = 0; j < 6; ++j) s[j] += p[j];
+        }
+        if (zero_first)
+            for (int j = 0; j < 6; ++j) f[6 * (size_t)n + j] = s[j];
+        else
+            for (int j = 0; j < 6; ++j) f[6 * (size_t)n + j] += s[j];
+    }
+}
+
+/* Central-difference update with mass-proportional damping c (1/s) and optional finite
+ * nodal rotation matrix update Rnode (nn*9, row-major 3x3, NULL if unused).
  * fix: nn*6 flags (1 fixed, 2 prescribed velocity vpres). cons: ncons constraints (node, type 0 = translation, 1 = rotation,
  * unit direction): the velocity component along the direction is removed.
  * out[0] = kinetic energy at the half step, out[1] += damping work. */
-void integrate(int nn, double *x, double *v, double *w, const double *fint, const double *fpat, double lam,
-               const double *mass, const double *rinert, const unsigned char *fix, const double *vpres,
+void integrate(int nn, double *x, double *Rnode, double *v, double *w, const double *fint, const double *fpat,
+               double lam, const double *mass, const double *rinert, const unsigned char *fix, const double *vpres,
                int ncons, const int *cnode, const int *ctype, const double *cdir,
                double c, double dt, double *out)
 {
@@ -408,6 +426,26 @@ void integrate(int nn, double *x, double *v, double *w, const double *fint, cons
     for (int n = 0; n < nn; ++n) {
         double *vv = v + 3 * (size_t)n, *ww = w + 3 * (size_t)n;
         for (int k = 0; k < 3; ++k) x[3 * (size_t)n + k] += dt * vv[k];
+        if (Rnode) {
+            double tx = ww[0] * dt, ty = ww[1] * dt, tz = ww[2] * dt;
+            double phi2 = tx * tx + ty * ty + tz * tz;
+            if (phi2 > 0.0) {
+                double c1, c2;
+                if (phi2 < 1e-12) { c1 = 1.0 - phi2 / 6.0; c2 = 0.5 - phi2 / 24.0; }
+                else { double phi = sqrt(phi2); c1 = sin(phi) / phi; c2 = (1.0 - cos(phi)) / phi2; }
+                double dR[9] = {
+                    1.0 - c2 * (ty * ty + tz * tz), -c1 * tz + c2 * tx * ty,          c1 * ty + c2 * tx * tz,
+                    c1 * tz + c2 * tx * ty,          1.0 - c2 * (tx * tx + tz * tz), -c1 * tx + c2 * ty * tz,
+                   -c1 * ty + c2 * tx * tz,          c1 * tx + c2 * ty * tz,          1.0 - c2 * (tx * tx + ty * ty)
+                };
+                double *R = Rnode + 9 * (size_t)n;
+                double Rn[9];
+                for (int r = 0; r < 3; ++r)
+                    for (int col = 0; col < 3; ++col)
+                        Rn[3 * r + col] = dR[3 * r + 0] * R[col] + dR[3 * r + 1] * R[3 + col] + dR[3 * r + 2] * R[6 + col];
+                for (int j = 0; j < 9; ++j) R[j] = Rn[j];
+            }
+        }
         ke += 0.5 * mass[n] * dot(vv, vv) + 0.5 * rinert[n] * dot(ww, ww);
     }
     out[0] = ke;
@@ -646,6 +684,474 @@ void springs(int nsp, const int *na, const double *wa, const int *nb, const doub
         o[5] = F[1];
         o[6] = F[2];
     }
+}
+
+/* ============================================================================
+ * Phase 3 extensions: 3D co-rotational elastoplastic fibre beam-columns,
+ * coupled 6-DOF connections & column splices, and mass-conserving impact contact.
+ * ============================================================================ */
+
+static inline void mat_vec(const double *R, const double *v, double *o)
+{
+    o[0] = R[0] * v[0] + R[1] * v[1] + R[2] * v[2];
+    o[1] = R[3] * v[0] + R[4] * v[1] + R[5] * v[2];
+    o[2] = R[6] * v[0] + R[7] * v[1] + R[8] * v[2];
+}
+
+/* Exact logarithmic relative rotation vector of triad (a1, a2, a3) in frame (e1, e2, e3). */
+static inline void rel_rot(const double *e1, const double *e2, const double *e3,
+                           const double *a1, const double *a2, const double *a3,
+                           double *th1, double *th2, double *th3)
+{
+    double s1 = 0.5 * (dot(e3, a2) - dot(e2, a3));
+    double s2 = 0.5 * (dot(e1, a3) - dot(e3, a1));
+    double s3 = 0.5 * (dot(e2, a1) - dot(e1, a2));
+    double s = sqrt(s1 * s1 + s2 * s2 + s3 * s3);
+    double tr = dot(e1, a1) + dot(e2, a2) + dot(e3, a3);
+    double c = 0.5 * (tr - 1.0);
+    double fac;
+    if (s > 1e-7) {
+        if (c > 1.0) c = 1.0;
+        if (c < -1.0) c = -1.0;
+        fac = atan2(s, c) / s;
+    } else {
+        fac = 1.0 + s * s / 6.0;
+    }
+    *th1 = fac * s1;
+    *th2 = fac * s2;
+    *th3 = fac * s3;
+}
+
+/* Uniaxial 1D return map on tabulated flow curves; updates *s and returns dep >= 0. */
+static inline double uniaxial_point(const Mat *m, int k, double T1, double E0, double E1, double dth,
+                                    double symin2, double symin2_t, double de, double *s, double ep0)
+{
+    double st = (E1 / E0) * (*s) + E1 * (de - dth);
+    if (m->kind[k] == 1) { *s = st; return 0.0; }
+    int tens = (m->kind[k] == 2) && (st > 0.0);
+    if (st * st <= (tens ? symin2_t : symin2)) { *s = st; return 0.0; }
+    double abst = fabs(st), sgn = (st >= 0.0) ? 1.0 : -1.0;
+    double sy, H;
+    flow(m, k, T1, ep0, &sy, &H, tens);
+    if (abst <= sy) { *s = st; return 0.0; }
+    double lo = 0.0, hi = abst / E1;
+    double dep = (abst - sy) / (E1 + (H > 0.0 ? H : 0.0));
+    for (int it = 0; it < 30; ++it) {
+        flow(m, k, T1, ep0 + dep, &sy, &H, tens);
+        double F = abst - E1 * dep - sy;
+        if (fabs(F) <= 1e-11 * (sy + 1.0)) break;
+        if (F > 0.0) lo = dep; else hi = dep;
+        double dF = -(E1 + (H > -0.9 * E1 ? H : -0.9 * E1));
+        double dn = dep - F / dF;
+        if (!(dn > lo && dn < hi)) dn = 0.5 * (lo + hi);
+        dep = dn;
+    }
+    *s = sgn * (abst - E1 * dep);
+    return dep;
+}
+
+/* 3D co-rotational Euler-Bernoulli fibre beam-column with 3-point Gauss-Lobatto
+ * integration along length x nfib fibres across the section, Saint-Venant torsion,
+ * and smooth removal multiplier bfac[b] in [0, 1].
+ * fbe: nb*12 global nodal forces/moments (nA: 0..5, nB: 6..11).
+ * bdiag: nb*6 [N_ax, m2A, m2B, m3A, m3B, max_epsp]. */
+void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, const int *btg,
+                 const double *bL0, const double *be0, const double *bfac, double *bfac_prev,
+                 const double *x, const double *Rnode,
+                 const double *Tnow, const double *Tprev, const Mat *M,
+                 int nfib, const double *syf, const double *szf, const double *sAf, const double *sJ,
+                 double *bq, double *bsig, double *bepsp, double *bm1,
+                 double *fbe, double *bdiag, double *energy, double *rem_out)
+{
+    static const double XI_GL[3] = {-1.0, 0.0, 1.0};
+    static const double W_GL[3]  = {1.0 / 3.0, 4.0 / 3.0, 1.0 / 3.0};
+    double eIE = 0.0, ePL = 0.0, eTH = 0.0, eREM = 0.0;
+    enum { MAXM = 32, MAXG = 64 };
+    double bound2[MAXM][MAXG], bound2t[MAXM][MAXG];
+    double Ecur[MAXM][MAXG], Eold[MAXM][MAXG], dthm[MAXM][MAXG];
+    int ng = 0;
+    for (int b = 0; b < nb; ++b) if (btg[b] + 1 > ng) ng = btg[b] + 1;
+    for (int k = 0; k < M->nmat && k < MAXM; ++k)
+        for (int g = 0; g < ng && g < MAXG; ++g) {
+            double fm = flow_min(M, k, Tnow[g], 0);
+            double ftm = (M->kind[k] == 2) ? flow_min(M, k, Tnow[g], 1) : fm;
+            bound2[k][g] = fm * fm * (1.0 - 1e-12);
+            bound2t[k][g] = ftm * ftm * (1.0 - 1e-12);
+            Ecur[k][g] = tab_T(M, M->E, k, Tnow[g]);
+            Eold[k][g] = tab_T(M, M->E, k, Tprev[g]);
+            dthm[k][g] = tab_T(M, M->eth, k, Tnow[g]) - tab_T(M, M->eth, k, Tprev[g]);
+        }
+
+#pragma omp parallel for schedule(static) reduction(+ : eIE, ePL, eTH, eREM)
+    for (int b = 0; b < nb; ++b) {
+        double *o = fbe + 12 * (size_t)b;
+        double *dg = bdiag + 6 * (size_t)b;
+        const double fac = bfac[b], fac0 = bfac_prev[b];
+        const int km = bmat[b], gk = btg[b], sec = bsec[b];
+        const double L0 = bL0[b];
+        const double E0 = Eold[km][gk], E1 = Ecur[km][gk], nu = M->nu[km];
+        const double G0 = E0 / (2.0 * (1.0 + nu)), G1 = E1 / (2.0 * (1.0 + nu));
+
+        if (fac0 > fac) {
+            /* Elastic energy shed by smooth element removal over this cycle */
+            double u_el = 0.0;
+            const double *Af = sAf + (size_t)sec * nfib;
+            const double *sg = bsig + (size_t)b * 3 * nfib;
+            for (int ip = 0; ip < 3; ++ip) {
+                double wg = 0.5 * L0 * W_GL[ip];
+                for (int f = 0; f < nfib; ++f) {
+                    double s = sg[ip * nfib + f];
+                    u_el += 0.5 * (s * s / E0) * wg * Af[f];
+                }
+            }
+            if (sJ[sec] > 0.0) u_el += 0.5 * bm1[b] * bm1[b] * L0 / (G0 * sJ[sec]);
+            eREM += (fac0 - fac) * u_el;
+        }
+        bfac_prev[b] = fac;
+
+        if (fac <= 0.0) {
+            for (int j = 0; j < 12; ++j) o[j] = 0.0;
+            for (int j = 0; j < 6; ++j) dg[j] = 0.0;
+            continue;
+        }
+
+        const int nA = bconn[2 * b], nB = bconn[2 * b + 1];
+        const double *xA = x + 3 * (size_t)nA, *xB = x + 3 * (size_t)nB;
+        const double *RA = Rnode + 9 * (size_t)nA, *RB = Rnode + 9 * (size_t)nB;
+        const double *e10 = be0 + 9 * (size_t)b, *e20 = e10 + 3, *e30 = e10 + 6;
+
+        double dx[3] = {xB[0] - xA[0], xB[1] - xA[1], xB[2] - xA[2]};
+        double L = sqrt(dot(dx, dx));
+        if (L < 1e-12) L = 1e-12;
+        double e1[3] = {dx[0] / L, dx[1] / L, dx[2] / L};
+
+        double a1[3], a2[3], a3[3], b1[3], b2[3], b3[3];
+        mat_vec(RA, e10, a1); mat_vec(RA, e20, a2); mat_vec(RA, e30, a3);
+        mat_vec(RB, e10, b1); mat_vec(RB, e20, b2); mat_vec(RB, e30, b3);
+
+        double r2[3] = {0.5 * (a2[0] + b2[0]), 0.5 * (a2[1] + b2[1]), 0.5 * (a2[2] + b2[2])};
+        double e2[3], e3[3];
+        cross(e1, r2, e3);
+        double n3 = sqrt(dot(e3, e3));
+        if (n3 > 1e-6) {
+            e3[0] /= n3; e3[1] /= n3; e3[2] /= n3;
+            cross(e3, e1, e2);
+        } else {
+            double r3[3] = {0.5 * (a3[0] + b3[0]), 0.5 * (a3[1] + b3[1]), 0.5 * (a3[2] + b3[2])};
+            cross(r3, e1, e2);
+            normalize(e2);
+            cross(e1, e2, e3);
+        }
+
+        double th1A, th2A, th3A, th1B, th2B, th3B;
+        rel_rot(e1, e2, e3, a1, a2, a3, &th1A, &th2A, &th3A);
+        rel_rot(e1, e2, e3, b1, b2, b3, &th1B, &th2B, &th3B);
+
+        double eps0 = (L - L0) / L0;
+        double dth1 = th1B - th1A;
+
+        double *q = bq + 6 * (size_t)b;
+        double deps0 = eps0 - q[0];
+        double dth2A = th2A - q[1], dth2B = th2B - q[2];
+        double dth3A = th3A - q[3], dth3B = th3B - q[4];
+        double ddth1 = dth1 - q[5];
+        q[0] = eps0; q[1] = th2A; q[2] = th2B; q[3] = th3A; q[4] = th3B; q[5] = dth1;
+
+        const double T1 = Tnow[gk], dth = dthm[km][gk];
+        const double sb2 = bound2[km][gk], sb2t = bound2t[km][gk];
+        const double *yf = syf + (size_t)sec * nfib;
+        const double *zf = szf + (size_t)sec * nfib;
+        const double *Af = sAf + (size_t)sec * nfib;
+
+        double Nax = 0.0, m2A = 0.0, m2B = 0.0, m3A = 0.0, m3B = 0.0, max_ep = 0.0;
+        for (int ip = 0; ip < 3; ++ip) {
+            double xi = XI_GL[ip], wg2 = 0.5 * W_GL[ip];
+            double bA = (3.0 * xi - 1.0) / L0, bB = (3.0 * xi + 1.0) / L0;
+            double dk2 = bA * dth2A + bB * dth2B;
+            double dk3 = bA * dth3A + bB * dth3B;
+            double Ng = 0.0, M2g = 0.0, M3g = 0.0;
+            double *sg = bsig + ((size_t)b * 3 + ip) * nfib;
+            double *epg = bepsp + ((size_t)b * 3 + ip) * nfib;
+            for (int f = 0; f < nfib; ++f) {
+                double de = deps0 + zf[f] * dk2 - yf[f] * dk3;
+                double so = sg[f];
+                double dep = uniaxial_point(M, km, T1, E0, E1, dth, sb2, sb2t, de, &sg[f], epg[f]);
+                epg[f] += dep;
+                if (epg[f] > max_ep) max_ep = epg[f];
+                double sf = sg[f], af = Af[f], vol = wg2 * L0 * af;
+                eIE += fac * 0.5 * (so + sf) * (de - dth) * vol;
+                eTH -= fac * 0.5 * (so + sf) * dth * vol;
+                ePL += fac * dep * fabs(sf) * vol;
+                Ng  += sf * af;
+                M2g += zf[f] * sf * af;
+                M3g -= yf[f] * sf * af;
+            }
+            Nax += wg2 * Ng;
+            m2A += wg2 * (3.0 * xi - 1.0) * M2g;
+            m2B += wg2 * (3.0 * xi + 1.0) * M2g;
+            m3A += wg2 * (3.0 * xi - 1.0) * M3g;
+            m3B += wg2 * (3.0 * xi + 1.0) * M3g;
+        }
+
+        double m1_old = (G1 / G0) * bm1[b];
+        double m1_new = m1_old + (G1 * sJ[sec] / L0) * ddth1;
+        bm1[b] = m1_new;
+        eIE += fac * 0.5 * (m1_old + m1_new) * ddth1;
+
+        Nax *= fac; m2A *= fac; m2B *= fac; m3A *= fac; m3B *= fac;
+        double m1 = fac * m1_new;
+
+        double f1B = Nax;
+        double f2B = -(m3A + m3B) / L;
+        double f3B =  (m2A + m2B) / L;
+        double f1A = -f1B, f2A = -f2B, f3A = -f3B;
+
+        for (int k = 0; k < 3; ++k) {
+            o[0 + k] = f1A * e1[k] + f2A * e2[k] + f3A * e3[k];
+            o[3 + k] = -m1 * e1[k] + m2A * e2[k] + m3A * e3[k];
+            o[6 + k] = f1B * e1[k] + f2B * e2[k] + f3B * e3[k];
+            o[9 + k] =  m1 * e1[k] + m2B * e2[k] + m3B * e3[k];
+        }
+        dg[0] = Nax; dg[1] = m2A; dg[2] = m2B; dg[3] = m3A; dg[4] = m3B; dg[5] = max_ep;
+    }
+    energy[0] += eIE;
+    energy[2] += ePL;
+    energy[3] += eTH;
+    *rem_out += eREM;
+}
+
+/* Coupled 6-DOF breakable connection & column-splice elements.
+ * jkind: 0 = simple shear (F/K/H/STP), 1 = seated with walk-off (STC/SWC),
+ *        2 = elastoplastic moment connection (MC), 3 = column splice (milled compression + plate tension/shear).
+ * jstate: 0 = intact, 1 = bolts/welds broken (seat or milled bearing active until walk-off), 2 = detached.
+ * jfsv (nj*8): [N_ten, V_shear, M_mag, u1, u_lat, stored_el_energy, cum_plastic_work, step_lost_energy]. */
+void joints(int nj, const int *jna, const int *jnb, const int *jkind, const double *jpB,
+            const double *jr0, const double *je0,
+            const double *kt, const double *kc, const double *kv, const double *gap_c,
+            const double *walk_ax, const double *walk_lat, const double *kr,
+            const double *ncap, const double *vcap, const double *mpcap, const double *thu,
+            unsigned char *jstate, double *jq, const double *x, const double *Rnode,
+            double *fint, double *jfsv)
+{
+    static const double R_EYE[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    for (int i = 0; i < nj; ++i) {
+        double *o = jfsv + 8 * (size_t)i;
+        o[7] = 0.0;
+        if (jstate[i] == 2) {
+            o[0] = o[1] = o[2] = o[5] = 0.0;
+            continue;
+        }
+        const int nA = jna[i], nB = jnb[i], kind = jkind[i];
+        const double *xA = x + 3 * (size_t)nA;
+        const double *RA = Rnode + 9 * (size_t)nA;
+        const double *xB = (nB >= 0) ? (x + 3 * (size_t)nB) : (jpB + 3 * (size_t)i);
+        const double *RB = (nB >= 0) ? (Rnode + 9 * (size_t)nB) : R_EYE;
+        const double *r0 = jr0 + 3 * (size_t)i;
+        const double *e10 = je0 + 9 * (size_t)i, *e20 = e10 + 3, *e30 = e10 + 6;
+
+        double rB[3], e1[3], e2[3], e3[3], a1[3], a2[3], a3[3];
+        mat_vec(RB, r0, rB);
+        mat_vec(RB, e10, e1); mat_vec(RB, e20, e2); mat_vec(RB, e30, e3);
+        mat_vec(RA, e10, a1); mat_vec(RA, e20, a2); mat_vec(RA, e30, a3);
+
+        double du[3] = {xA[0] - (xB[0] + rB[0]), xA[1] - (xB[1] + rB[1]), xA[2] - (xB[2] + rB[2])};
+        double u1 = dot(du, e1), u2 = dot(du, e2), u3 = dot(du, e3);
+        double th1, th2, th3;
+        rel_rot(e1, e2, e3, a1, a2, a3, &th1, &th2, &th3);
+
+        double *q = jq + 4 * (size_t)i; /* [M2, M3, th2_prev, th3_prev] */
+        double dth2 = th2 - q[2], dth3 = th3 - q[3];
+        q[2] = th2; q[3] = th3;
+
+        double F1 = 0.0, F2 = 0.0, F3 = 0.0, M1 = 0.0, M2 = 0.0, M3 = 0.0;
+        double u_el = 0.0, d_pl = 0.0;
+
+        if (jstate[i] == 0) {
+            /* Intact state: compute trial forces and check fracture criteria */
+            double Nten = (u1 > 0.0) ? kt[i] * u1 : 0.0;
+            double pen = -u1 - gap_c[i];
+            double Ncomp = (pen > 0.0) ? kc[i] * pen : 0.0;
+            F1 = Nten - Ncomp;
+            F2 = kv[i] * u2;
+            F3 = kv[i] * u3;
+
+            double u_el_bolts = 0.5 * ((u1 > 0.0) ? kt[i] * u1 * u1 : 0.0) + 0.5 * kv[i] * (u2 * u2 + u3 * u3);
+            double u_el_comp  = (pen > 0.0) ? 0.5 * kc[i] * pen * pen : 0.0;
+
+            double V_bolt = sqrt(F2 * F2 + F3 * F3);
+            if (kind == 1 && u3 < 0.0) {
+                /* On a seated connection, downward shear (u3 < 0) bears on the seat; bolts resist lateral & uplift */
+                V_bolt = sqrt(F2 * F2);
+            }
+
+            if (kind == 2 || kind == 3) {
+                double kr_i = kr[i], mp_i = mpcap[i];
+                if (kr_i > 0.0 && mp_i > 0.0) {
+                    double m2_tr = q[0] + kr_i * dth2;
+                    double m3_tr = q[1] + kr_i * dth3;
+                    if (fabs(m2_tr) > mp_i) {
+                        double dthp = (fabs(m2_tr) - mp_i) / kr_i;
+                        d_pl += mp_i * dthp;
+                        m2_tr = (m2_tr > 0.0) ? mp_i : -mp_i;
+                    }
+                    if (fabs(m3_tr) > mp_i) {
+                        double dthp = (fabs(m3_tr) - mp_i) / kr_i;
+                        d_pl += mp_i * dthp;
+                        m3_tr = (m3_tr > 0.0) ? mp_i : -mp_i;
+                    }
+                    q[0] = M2 = m2_tr;
+                    q[1] = M3 = m3_tr;
+                    M1 = 0.2 * kr_i * th1;
+                    u_el_bolts += 0.5 * (M2 * M2 + M3 * M3) / kr_i + 0.5 * (0.2 * kr_i) * th1 * th1;
+                }
+            }
+
+            double rn = (ncap[i] > 0.0) ? (Nten / ncap[i]) : 0.0;
+            double rv = (vcap[i] > 0.0) ? (V_bolt / vcap[i]) : 0.0;
+            int rot_fail = (kind == 2 && thu[i] > 0.0 && (fabs(th2) > thu[i] || fabs(th3) > thu[i]));
+            if (rn * rn + rv * rv > 1.0 || rot_fail) {
+                q[0] = q[1] = 0.0;
+                if (kind == 1 || kind == 3) {
+                    /* Transition to bearing-only state (1): bolts/plates broken, seat or milled bearing checked below */
+                    jstate[i] = 1;
+                    if (kind == 1 && u3 < 0.0) {
+                        /* Keep downward seat elastic energy, lose bolt tension & lateral shear energy */
+                        double u_seat = 0.5 * kv[i] * u3 * u3;
+                        o[7] += (u_el_bolts > u_seat) ? (u_el_bolts - u_seat) : 0.0;
+                    } else {
+                        o[7] += u_el_bolts;
+                    }
+                } else {
+                    jstate[i] = 2;
+                    o[0] = Nten; o[1] = V_bolt; o[2] = sqrt(M2 * M2 + M3 * M3);
+                    o[3] = u1; o[4] = (kind == 3) ? sqrt(u2 * u2 + u3 * u3) : fabs(u2);
+                    o[5] = 0.0; o[6] += d_pl; o[7] += u_el_bolts + u_el_comp;
+                    continue;
+                }
+            } else {
+                u_el = u_el_bolts + u_el_comp;
+            }
+        }
+
+        if (jstate[i] == 1) {
+            /* Bearing-only state: seated connection (kind 1) or broken column splice in compression (kind 3) */
+            F1 = F2 = F3 = M1 = M2 = M3 = 0.0;
+            double pen = -u1 - gap_c[i];
+            if (kind == 1) {
+                if (u1 > walk_ax[i] || fabs(u2) > walk_lat[i]) {
+                    jstate[i] = 2;
+                    double u_rem = ((pen > 0.0) ? 0.5 * kc[i] * pen * pen : 0.0) + ((u3 < 0.0) ? 0.5 * kv[i] * u3 * u3 : 0.0);
+                    o[0] = o[1] = o[2] = o[5] = 0.0; o[3] = u1; o[4] = fabs(u2); o[7] += u_rem;
+                    continue;
+                }
+                if (pen > 0.0) { F1 = -kc[i] * pen; u_el += 0.5 * kc[i] * pen * pen; }
+                if (u3 < 0.0)  { F3 =  kv[i] * u3;  u_el += 0.5 * kv[i] * u3 * u3; }
+            } else if (kind == 3) {
+                double u_lat = sqrt(u2 * u2 + u3 * u3);
+                if (u_lat > walk_lat[i]) {
+                    jstate[i] = 2;
+                    double u_rem = (pen > 0.0) ? 0.5 * kc[i] * pen * pen : 0.0;
+                    o[0] = o[1] = o[2] = o[5] = 0.0; o[3] = u1; o[4] = u_lat; o[7] += u_rem;
+                    continue;
+                }
+                if (pen > 0.0) { F1 = -kc[i] * pen; u_el += 0.5 * kc[i] * pen * pen; }
+            }
+        }
+
+        double Fg[3], Mg[3];
+        for (int k = 0; k < 3; ++k) {
+            Fg[k] = F1 * e1[k] + F2 * e2[k] + F3 * e3[k];
+            Mg[k] = M1 * e1[k] + M2 * e2[k] + M3 * e3[k];
+            fint[6 * (size_t)nA + k]     += Fg[k];
+            fint[6 * (size_t)nA + 3 + k] += Mg[k];
+        }
+        if (nB >= 0) {
+            double arm[3] = {xA[0] - xB[0], xA[1] - xB[1], xA[2] - xB[2]};
+            double cM[3];
+            cross(arm, Fg, cM);
+            for (int k = 0; k < 3; ++k) {
+                fint[6 * (size_t)nB + k]     -= Fg[k];
+                fint[6 * (size_t)nB + 3 + k] -= (Mg[k] + cM[k]);
+            }
+        }
+
+        o[0] = (F1 > 0.0) ? F1 : 0.0;
+        o[1] = sqrt(F2 * F2 + F3 * F3);
+        o[2] = sqrt(M2 * M2 + M3 * M3);
+        o[3] = u1;
+        o[4] = (kind == 3) ? sqrt(u2 * u2 + u3 * u3) : fabs(u2);
+        o[5] = u_el;
+        o[6] += d_pl;
+    }
+}
+
+/* Mass-conserving node-to-master-patch (1 to 4 master nodes, or fixed point when mnode[4*i] < 0)
+ * penalty + viscous restitution + Coulomb friction impact contact.
+ * out[0..2] = net contact force on slaves, out[3] += dissipated energy (viscous + friction),
+ * out[4] = current stored elastic contact energy, out[5] = active contact count. */
+void contact_impact(int ni, const int *snode, const int *mnode, const double *mw, const double *mpos,
+                    const double *nrm, const double *clr, const double *x, const double *v,
+                    const double *kn, const double *meff, double ktf, double mu, const double *cn,
+                    double dt, double gmax, double *ft, double *fint, double *out)
+{
+    double o0 = 0, o1 = 0, o2 = 0, o3 = 0, o4 = 0, o5 = 0;
+    for (int i = 0; i < ni; ++i) {
+        const int ns = snode[i];
+        const double *xs = x + 3 * (size_t)ns, *vs = v + 3 * (size_t)ns;
+        const double *n = nrm + 3 * (size_t)i;
+        double xm[3] = {0, 0, 0}, vm[3] = {0, 0, 0};
+        if (mnode[4 * i] >= 0) {
+            for (int I = 0; I < 4; ++I) {
+                int nm = mnode[4 * i + I];
+                if (nm >= 0) {
+                    double w = mw[4 * i + I];
+                    for (int k = 0; k < 3; ++k) {
+                        xm[k] += w * x[3 * (size_t)nm + k];
+                        vm[k] += w * v[3 * (size_t)nm + k];
+                    }
+                }
+            }
+        } else {
+            for (int k = 0; k < 3; ++k) xm[k] = mpos[3 * (size_t)i + k];
+        }
+        double d[3] = {xs[0] - xm[0], xs[1] - xm[1], xs[2] - xm[2]};
+        double g = dot(d, n) - clr[i];
+        double *f = ft + 3 * (size_t)i;
+        if (!(g < 0.0 && g > -gmax)) {
+            f[0] = f[1] = f[2] = 0.0;
+            continue;
+        }
+        double vrel[3] = {vs[0] - vm[0], vs[1] - vm[1], vs[2] - vm[2]};
+        double vn = dot(vrel, n);
+        double fel = -kn[i] * g;
+        double fn = fel - cn[i] * vn;
+        if (fn < 0.0) fn = 0.0;
+        double fvisc = fn - fel;
+        double vbar = vn + 0.5 * fn * dt / meff[i];
+        o3 += -fvisc * vbar * dt;
+        double kt = ktf * kn[i];
+        double vt[3] = {vrel[0] - vn * n[0], vrel[1] - vn * n[1], vrel[2] - vn * n[2]};
+        if (mu > 0.0 && kt > 0.0)
+            o3 += friction(f, n, fn, vt, kt, mu, dt);
+        else
+            f[0] = f[1] = f[2] = 0.0;
+
+        double F[3] = {fn * n[0] + f[0], fn * n[1] + f[1], fn * n[2] + f[2]};
+        for (int k = 0; k < 3; ++k) fint[6 * (size_t)ns + k] -= F[k];
+        if (mnode[4 * i] >= 0) {
+            for (int I = 0; I < 4; ++I) {
+                int nm = mnode[4 * i + I];
+                if (nm >= 0) {
+                    double w = mw[4 * i + I];
+                    for (int k = 0; k < 3; ++k) fint[6 * (size_t)nm + k] += w * F[k];
+                }
+            }
+        }
+        o0 += F[0]; o1 += F[1]; o2 += F[2];
+        o4 += 0.5 * kn[i] * g * g + ((mu > 0.0 && kt > 0.0) ? 0.5 * dot(f, f) / kt : 0.0);
+        o5 += 1.0;
+    }
+    out[0] = o0; out[1] = o1; out[2] = o2; out[3] += o3; out[4] = o4; out[5] = o5;
 }
 
 #ifdef _OPENMP
