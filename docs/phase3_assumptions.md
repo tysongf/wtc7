@@ -1,0 +1,22 @@
+# Phase 3 assumptions and structural data provenance (`A100`–`A112`)
+
+Generated from `phase3/data.py` (`docs/phase3_plan.md` Step 4) before any full-building collapse run.
+Primary geometry, storey heights, column schedules, spandrel schedules, and transfer-truss member sizes
+are read directly from Frankel erection drawings (`E12/13`, `E120`) and Irwin G. Cantor structural drawings
+(`S-8`, `S-14`, `S-15`, `S-16`, `S-17`, `S-17A`, `S-18`, `S-22`, `S-23`).
+
+| ID | Input | Baseline value | Units | Status | Sweep | Source | Note |
+|---|---|---|---|---|---|---|---|
+| A100 | Base boundary & Con Ed substation | Column bases fixed below Floor 2; substation columns fixed at Floor 3 (z = 303 in.) | in. | report |  | NCSTAR 1-9A §3.4.2; Cantor S-17A | Matches NIST global LS-DYNA boundary |
+| A101 | Storey elevations (Floors 1 to Main Roof) | 48 levels from EL. 309'-3" to EL. 920'-7" (611'-4" height) | in. | drawing |  | Cantor S-17 & S-18 left margins; verified at Fl 12 (EL. 452'-9") on E12/13 | Exact to 0.0 in. across S-17, S-18, E12/13, and NCSTAR 1-9 §12.5.3 |
+| A102 | 82-column plan coordinates + 15 transfer sub-columns | Exact E12/13 stationing (329 ft N, 247 ft S, 140'-5" N-S col lines) | in. | drawing |  | Frankel E12/13 rev 4; Cantor S-17A & S-23 | Closes all perimeter & core bevel triangles within < 1 in. |
+| A103 | Column section schedule (Floors 1 to Roof) | Exact S-17/S-17A/S-18 tiers on Cols 73, 76-81 & transfers; Cantor W14 ladder on remaining cols |  | drawing |  | Cantor S-17, S-17A, S-18; NCSTAR 1-9 App. D | Includes side cover plates on Col 79 (5" to 1") and web plates on Cols 73, 76, 80, 81 |
+| A104 | Two-storey column splices (odd floors 3..45) | Milled compression bearing + bolted/welded flange & web splice plates (N_cap ~ 0.35 A Fy_pl) | kip | drawing | T3: x 0.50, x 1.50 | Cantor S-17 & S-17A splice details (2'-6" plates, 5/16" fillet welds); S-17A tension table (~1000-1100 kip) | Compression bears across milled ends until lateral shear slip exceeds column half-width |
+| A105 | Service gravity load schedule | Unfactored DL + SDL + 0.25 LL + Fl 7 (22 kip) & Fl 46 (425 + 667 kip) equipment + penthouses | psf, kip | report | T1: LL = 0.0, 0.50 | NCSTAR 1-9 Fig. 11-17; NCSTAR 1-9A §3.4.3; Cantor S-16 | Distributed onto floor framing nodes so detached floors carry full slab mass during collapse |
+| A106 | Interior shear & seated connection capacities | Tables 11-2..11-4 ultimate capacities + STC 6.25-in. / STP 4.5-in. / SWC 2.5-in. walk-off | kip, in. | report | T2: x 0.75, x 1.25 | NCSTAR 1-9 §11.2.4, §11.2.5, Tables 11-2 to 11-4; June 2012 errata | Coupled (N/Ncap)^2 + (V/Vcap)^2 = 1 fracture; seated bearing maintained until walk-off |
+| A107 | Perimeter spandrel moment connections | Cantor S-15 W36/W30 schedule, Mp = 0.85 Fy Zx (weld-zone reduced), thu = 0.06 rad | kip-in., rad | drawing |  | Cantor S-15; NCSTAR 1-9A §3.3.1 | Elastoplastic rotational hinges with fracture rotation limit |
+| A108 | Composite slab in-plane diaphragm & membrane ties | WWF 6x6 W1.4xW1.4 + deck membrane ties on tenant floors; reinforced concrete ties on Fl 5 & Fl 7 | kip | report | T4: x 0.50, x 2.0 | NCSTAR 1-9 §2.4.2; NCSTAR 1-9A §2.3.1; Cantor S-5A | Provides diaphragm bracing while intact and catenary membrane pull up to tear-out |
+| A109 | Transfer Trusses 1, 2, 3 and MG-21, 22, 23, 27, 53 | Explicit 3D beam-column & built-up plate-girder elements between Floors 5 and 7 | in. | drawing |  | Cantor S-23 Plate Girder Schedule & Truss 1-3 elevations; NCSTAR 1-9A §3.4.1 | Captures Col 80 -> Truss 2 -> Col 77 & MG-23 -> Col 78 load path |
+| A110 | Storey-to-storey falling-floor impact contact | Two-body reduced-mass penalty (alpha = 0.1) + viscous restitution (zeta = 0.35) + mu = 0.3 |  | assumed |  | NCSTAR 1-9A §3.2.4 (SOFT=1, mu=0.3); verified in tests/test_phase3_xfe.py | Zero element or nodal mass deletion upon connection fracture |
+| A111 | Mass-proportional damping during collapse | 0.5 % of critical at f_1 (~0.28 Hz -> c = 0.018 /s) | 1/s | assumed | T6: 0 %, 2.0 % | Standard structural steel intrinsic damping; NIST value not stated | Heavy damping used only during pre-trigger static gravity settling |
+| A112 | Column 79 initial lateral imperfection in D0 | L / 1000 eastward half-sine bow between Floors 5 and 14 | in. | standard | T7: L/2000, L/500 | AISC Code of Standard Practice out-of-straightness tolerance | Used only in D0 where Column 79 is not artificially removed |

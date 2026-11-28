@@ -1,0 +1,98 @@
+{
+  "STC_79_81": {
+    "kind": 1,
+    "desc": "Seated top clip at Cols 79 & 81 (4 x 7/8 A325 bolts, 12-in. seat, 6.25 in. walk-off)",
+    "vcap": 180.0,
+    "ncap": 180.0,
+    "kt": 900.0,
+    "kc": 8000.0,
+    "kv": 2500.0,
+    "gap_c": 0.5,
+    "walk_ax": 6.25,
+    "walk_lat": 5.5
+  },
+  "STP_EXT": {
+    "kind": 1,
+    "desc": "Seated top plate / clip at exterior columns (4 x 7/8 A325, 4.5 in. walk-off)",
+    "vcap": 180.0,
+    "ncap": 180.0,
+    "kt": 900.0,
+    "kc": 8000.0,
+    "kv": 2500.0,
+    "gap_c": 0.5,
+    "walk_ax": 4.5,
+    "walk_lat": 4.5
+  },
+  "SWC_CORE": {
+    "kind": 1,
+    "desc": "Seated web clip on core beams (4 x 7/8 A325, 2.5 in. walk-off, NCSTAR 1-9 \u00a711.2.5)",
+    "vcap": 160.0,
+    "ncap": 140.0,
+    "kt": 800.0,
+    "kc": 6000.0,
+    "kv": 1800.0,
+    "gap_c": 0.5,
+    "walk_ax": 2.5,
+    "walk_lat": 3.5
+  },
+  "K8_W36": {
+    "kind": 0,
+    "desc": "8-bolt knife/bent-plate connection on W36x135 (Table 11-4: V_ult = 436 kip)",
+    "vcap": 436.0,
+    "ncap": 260.0,
+    "kt": 1600.0,
+    "kc": 8000.0,
+    "kv": 2200.0,
+    "gap_c": 0.5,
+    "walk_ax": 1.0,
+    "walk_lat": 1.0
+  },
+  "H5_W27": {
+    "kind": 0,
+    "desc": "5-row header / knife connection on W27x94 / W27x84 / W30 (Table 11-4: V_ult = 264-267 kip)",
+    "vcap": 265.0,
+    "ncap": 200.0,
+    "kt": 1300.0,
+    "kc": 7000.0,
+    "kv": 1800.0,
+    "gap_c": 0.5,
+    "walk_ax": 1.0,
+    "walk_lat": 1.0
+  },
+  "F6_EAST": {
+    "kind": 0,
+    "desc": "6-bolt fin / header connection on W24x55 & W21x44 tenant framing (Table 11-2: V_ult = 229 kip)",
+    "vcap": 229.0,
+    "ncap": 190.0,
+    "kt": 1200.0,
+    "kc": 6000.0,
+    "kv": 1600.0,
+    "gap_c": 0.5,
+    "walk_ax": 1.0,
+    "walk_lat": 1.0
+  },
+  "H4_CORE": {
+    "kind": 0,
+    "desc": "4-row header / fin connection on core girders W21-W24 (Table 11-4: V_ult = 217 kip)",
+    "vcap": 217.0,
+    "ncap": 175.0,
+    "kt": 1100.0,
+    "kc": 6000.0,
+    "kv": 1500.0,
+    "gap_c": 0.5,
+    "walk_ax": 1.0,
+    "walk_lat": 1.0
+  },
+  "F4_SOUTH": {
+    "kind": 0,
+    "desc": "4-bolt fin connection on south/west W16x26-W16x31 beams (Table 11-2: V_ult = 123-135 kip)",
+    "vcap": 130.0,
+    "ncap": 120.0,
+    "kt": 900.0,
+    "kc": 5000.0,
+    "kv": 1200.0,
+    "gap_c": 0.5,
+    "walk_ax": 1.0,
+    "walk_lat": 1.0
+  }
+}

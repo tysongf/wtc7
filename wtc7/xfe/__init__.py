@@ -39,6 +39,7 @@ def _lib_path():
 
 def load_kernel():
     """Compile kernel.c (once per source version) and bind its functions."""
+    os.environ.setdefault("GOMP_SPINCOUNT", "20000")
     so = _lib_path()
     if not so.exists():
         for old in HERE.glob("_kernel_*.so"):
@@ -51,6 +52,7 @@ def load_kernel():
                                  _dp, _dp, _dp, _dp, _dp, _dp]
     lib.gather.argtypes = [C.c_int, _ip, _ip, _dp, _dp]
     lib.gather_add.argtypes = [C.c_int, _ip, _ip, _dp, _dp, C.c_int]
+    lib.gather_sparse.argtypes = [C.c_int, _ip, _ip, _ip, _dp, _dp]
     lib.integrate.argtypes = [C.c_int, _dp, _dp, _dp, _dp, _dp, _dp, C.c_double, _dp, _dp, _up, _dp,
                               C.c_int, _ip, _ip, _dp, C.c_double, C.c_double, _dp]
     lib.contact_plane.argtypes = [C.c_int, _ip, _dp, _dp, _dp, _dp, _dp, C.c_double, C.c_double,
@@ -61,11 +63,12 @@ def load_kernel():
     lib.springs.argtypes = [C.c_int, _ip, _dp, _ip, _dp, _dp, _dp, _dp, _ip, _ip, _dp, _dp, _dp, _dp, _dp,
                             _up, _dp, _dp, _dp]
     lib.beam_forces.argtypes = [C.c_int, _ip, _ip, _ip, _ip, _dp, _dp, _dp, _dp, _dp, _dp,
-                                _dp, _dp, C.c_void_p, C.c_int, _dp, _dp, _dp, _dp,
-                                _dp, _dp, _dp, _dp, _dp, _dp, _dp, _dp]
+                                _dp, _dp, C.c_void_p, C.c_int, _ip, _dp, _dp, _dp, _dp, _dp,
+                                _up, _dp, _dp, _dp, _dp, _dp, _dp, _dp, _dp, _dp]
     lib.joints.argtypes = [C.c_int, _ip, _ip, _ip, _dp, _dp, _dp,
                            _dp, _dp, _dp, _dp, _dp, _dp, _dp,
-                           _dp, _dp, _dp, _dp, _up, _dp, _dp, _dp, _dp, _dp]
+                           _dp, _dp, _dp, _dp, _up, _dp, _dp, _dp, _dp, _dp, _dp]
+    lib.joints.restype = C.c_int
     lib.contact_impact.argtypes = [C.c_int, _ip, _ip, _dp, _dp, _dp, _dp, _dp, _dp,
                                    _dp, _dp, C.c_double, C.c_double, _dp, C.c_double, C.c_double,
                                    _dp, _dp, _dp]
@@ -73,6 +76,8 @@ def load_kernel():
     lib.stress_update.restype = C.c_double
     lib.set_threads.argtypes = [C.c_int]
     lib.get_threads.restype = C.c_int
+    if "OMP_NUM_THREADS" not in os.environ:
+        lib.set_threads(min(4, max(1, (os.cpu_count() or 2) // 2)))
     return lib
 
 
@@ -153,12 +158,12 @@ class PlaneContact:
     out: np.ndarray = field(default_factory=lambda: np.zeros(5))
 
 
-NFIB = 32
+NFIB = 16
 
 
 @dataclass
 class BeamSection:
-    """3D fibre beam-column cross section (padded to NFIB = 32 fibres)."""
+    """3D fibre beam-column cross section (padded to NFIB = 16 fibres)."""
     name: str
     yf: np.ndarray      # (NFIB,) weak-axis fibre coords (along e2, across flange width)
     zf: np.ndarray      # (NFIB,) strong-axis fibre coords (along e3, along web depth)
@@ -173,6 +178,8 @@ class BeamSection:
         Af = np.asarray(self.Af, float).ravel()
         if len(Af) > NFIB:
             raise ValueError(f"BeamSection {self.name} has {len(Af)} > {NFIB} fibres")
+        nz = np.nonzero(Af > 0.0)[0]
+        self.n_active = int(nz[-1] + 1) if len(nz) else 0
         pad = NFIB - len(Af)
         if pad > 0:
             yf = np.pad(yf, (0, pad))
@@ -184,18 +191,26 @@ class BeamSection:
         self.A = float(self.Af.sum())
         self.Ix = float((self.zf**2 * self.Af).sum())
         self.Iy = float((self.yf**2 * self.Af).sum())
+        act = self.Af > 0.0
+        self.ymax = float(np.abs(self.yf[act]).max()) if act.any() else 0.0
+        self.zmax = float(np.abs(self.zf[act]).max()) if act.any() else 0.0
+        self.is_doubly_sym = (
+            abs(float((self.Af * self.yf).sum())) <= 1e-8 * max(self.A, 1.0)
+            and abs(float((self.Af * self.zf).sum())) <= 1e-8 * max(self.A, 1.0)
+            and abs(float((self.Af * self.yf * self.zf).sum())) <= 1e-8 * max(self.Ix + self.Iy, 1.0)
+        )
 
 
 def rect_beam_section(name: str, b: float, h: float) -> BeamSection:
     """Exact rectangular b (width along e2) x h (depth along e3) fibre section.
-    Splits [-h/2, 0] and [0, h/2] into 8 Gauss points each x 2 Gauss points across [-b/2, b/2] = 32 fibres,
+    Splits [-h/2, 0] and [0, h/2] into 4 Gauss points each x 2 Gauss points across [-b/2, b/2] = 16 fibres,
     reproducing A, Ix, Iy, Zx and Zy to machine precision."""
-    xi8, w8 = np.polynomial.legendre.leggauss(8)
+    xi4, w4 = np.polynomial.legendre.leggauss(4)
     xi2, w2 = np.polynomial.legendre.leggauss(2)
-    z_neg = -0.25 * h + 0.25 * h * xi8
-    z_pos = +0.25 * h + 0.25 * h * xi8
+    z_neg = -0.25 * h + 0.25 * h * xi4
+    z_pos = +0.25 * h + 0.25 * h * xi4
     zs = np.concatenate([z_neg, z_pos])
-    wz = np.concatenate([0.25 * h * w8, 0.25 * h * w8])
+    wz = np.concatenate([0.25 * h * w4, 0.25 * h * w4])
     ys = 0.5 * b * xi2
     wy = 0.5 * b * w2
     Y, Z = np.meshgrid(ys, zs, indexing="ij")
@@ -207,36 +222,36 @@ def rect_beam_section(name: str, b: float, h: float) -> BeamSection:
 
 
 def w_beam_section(name: str, shape_or_name, kind: str = "bare", pw: float = 0.0, pt: float = 0.0) -> BeamSection:
-    """W-shape (bare, or built-up with two 'side' cover plates or 'web' plates of pw x pt in.).
-    Reproduces exact A, Ix, Iy and accurate plastic moduli Zx, Zy in <= 32 fibres."""
+    """W-shape (bare: 12 active fibres; built-up with 'side' or 'web' plates: 16 fibres).
+    Reproduces exact A, Ix, Iy and accurate plastic moduli Zx, Zy."""
     from wtc7.sections import shape as get_shape
     s = get_shape(shape_or_name) if isinstance(shape_or_name, str) else shape_or_name
-    edges_y = np.linspace(-s.bf / 2.0, s.bf / 2.0, 9)
-    yc = 0.5 * (edges_y[:-1] + edges_y[1:])
-    afl = s.tf * np.diff(edges_y)
+    # 2-point Gauss-Legendre on each half-interval [-1/2, 0] and [0, 1/2] integrates A, Z, and I exactly:
+    g4 = 0.5 * np.array([-0.5 - 0.5 / np.sqrt(3.0), -0.5 + 0.5 / np.sqrt(3.0),
+                         +0.5 - 0.5 / np.sqrt(3.0), +0.5 + 0.5 / np.sqrt(3.0)])
+    yc = s.bf * g4
+    afl = np.full(4, 0.25 * s.bf * s.tf)
     afl *= s.Iy / (2.0 * float((afl * yc**2).sum()))
     a_web_tot = max(s.A - 2.0 * float(afl.sum()), 1e-6)
     hw = max(s.d - 2.0 * s.tf, 0.1 * s.d)
-    edges_z = np.linspace(-hw / 2.0, hw / 2.0, 9)
-    zw = 0.5 * (edges_z[:-1] + edges_z[1:])
-    aw = np.full(8, a_web_tot / 8.0)
+    zw = hw * g4
+    aw = np.full(4, a_web_tot / 4.0)
     ix_rem = max(s.Ix - float((aw * zw**2).sum()), 1e-6)
     zfl = np.sqrt(ix_rem / (2.0 * float(afl.sum())))
 
-    yf = np.concatenate([yc, yc, np.zeros(8)])
-    zf = np.concatenate([np.full(8, zfl), np.full(8, -zfl), zw])
+    yf = np.concatenate([yc, yc, np.zeros(4)])
+    zf = np.concatenate([np.full(4, zfl), np.full(4, -zfl), zw])
     Af = np.concatenate([afl, afl, aw])
     J = float(s.J)
     width = float(s.bf)
     depth = float(s.d)
 
     if kind in ("side", "web") and pw > 0.0 and pt > 0.0:
-        edges_p = np.linspace(-pw / 2.0, pw / 2.0, 5)
-        zp = 0.5 * (edges_p[:-1] + edges_p[1:]) * (4.0 / np.sqrt(15.0))  # exact pt*pw^3/12 with 4 strips
-        ap = np.full(4, 0.25 * pw * pt)
+        zp = np.array([-pw / np.sqrt(12.0), +pw / np.sqrt(12.0)])
+        ap = np.full(2, 0.5 * pw * pt)
         xc = (s.bf / 2.0 + pt / 2.0) if kind == "side" else (s.tw / 2.0 + pt / 2.0)
         y_eff = np.sqrt(xc**2 + (pt**2) / 12.0)
-        yf = np.concatenate([yf, np.full(4, -y_eff), np.full(4, +y_eff)])
+        yf = np.concatenate([yf, np.full(2, -y_eff), np.full(2, +y_eff)])
         zf = np.concatenate([zf, zp, zp])
         Af = np.concatenate([Af, ap, ap])
         if kind == "side":
@@ -322,41 +337,67 @@ class JointSet:
         self.factor_fn = factor_fn
         self.state = np.ascontiguousarray(np.broadcast_to(np.asarray(initial_state, np.uint8), (n,)).copy())
         self.jq = np.zeros((n, 4))
+        self.jfbe = np.zeros((n, 12))
+        self.jg_ptr = None
+        self.jg_idx = None
+        self.jg_nodes = None
         self.fsv = np.zeros((n, 8))
+        self._lost_buf = np.zeros(1)
+        self._last_Tg = None
         self.lost_energy = 0.0
         self.break_time = np.full(n, np.nan)
         self.detach_time = np.full(n, np.nan)
 
+    def build_gather(self, nn: int):
+        """Build lock-free sparse CSR gather index mapping (2*i + 0 -> na[i], 2*i + 1 -> nb[i] if >= 0)."""
+        n = len(self.names)
+        slots_a = 2 * np.arange(n, dtype=np.int32)
+        nodes_a = self.na
+        has_b = self.nb >= 0
+        slots_b = 2 * np.nonzero(has_b)[0].astype(np.int32) + 1
+        nodes_b = self.nb[has_b]
+        all_nodes = np.concatenate([nodes_a, nodes_b])
+        all_slots = np.concatenate([slots_a, slots_b])
+        order = np.argsort(all_nodes, kind="stable")
+        counts = np.bincount(all_nodes, minlength=nn)
+        self.jg_ptr = np.ascontiguousarray(np.concatenate([[0], np.cumsum(counts)]).astype(np.int32))
+        self.jg_idx = np.ascontiguousarray(all_slots[order].astype(np.int32))
+        self.jg_nodes = np.ascontiguousarray(np.nonzero(counts > 0)[0].astype(np.int32))
+
     def apply(self, model, Tg):
-        if self.factor_fn is not None:
-            T = Tg[np.minimum(self.tgroup, len(Tg) - 1)]
-            fac = np.asarray(self.factor_fn(T), float)
-            np.multiply(self.ncap20, fac, out=self.ncap)
-            np.multiply(self.vcap20, fac, out=self.vcap)
-            np.multiply(self.mpcap20, fac, out=self.mpcap)
-        else:
-            self.ncap[:] = self.ncap20
-            self.vcap[:] = self.vcap20
-            self.mpcap[:] = self.mpcap20
-        prev = self.state.copy()
-        model.lib.joints(
+        if self.jg_ptr is None or len(self.jg_ptr) != model.nn + 1:
+            self.build_gather(model.nn)
+        if self._last_Tg is None or not np.array_equal(Tg, self._last_Tg):
+            self._last_Tg = Tg.copy()
+            if self.factor_fn is not None:
+                T = Tg[np.minimum(self.tgroup, len(Tg) - 1)]
+                fac = np.asarray(self.factor_fn(T), float)
+                np.multiply(self.ncap20, fac, out=self.ncap)
+                np.multiply(self.vcap20, fac, out=self.vcap)
+                np.multiply(self.mpcap20, fac, out=self.mpcap)
+            else:
+                self.ncap[:] = self.ncap20
+                self.vcap[:] = self.vcap20
+                self.mpcap[:] = self.mpcap20
+        n_changed = model.lib.joints(
             len(self.names), ptr(self.na), ptr(self.nb), ptr(self.kind), ptr(self.pB),
             ptr(self.r0), ptr(self.je0),
             ptr(self.kt), ptr(self.kc), ptr(self.kv), ptr(self.gap_c),
             ptr(self.walk_ax), ptr(self.walk_lat), ptr(self.kr),
             ptr(self.ncap), ptr(self.vcap), ptr(self.mpcap), ptr(self.thu),
             ptr(self.state), ptr(self.jq), ptr(model.x), ptr(model.Rnode),
-            ptr(model.fint), ptr(self.fsv)
+            ptr(self.jfbe), ptr(self.fsv), ptr(self._lost_buf)
         )
-        lost_step = float(self.fsv[:, 7].sum())
-        if lost_step != 0.0:
-            self.lost_energy += lost_step
-        b1 = np.nonzero((prev == 0) & (self.state >= 1))[0]
-        if len(b1):
-            self.break_time[b1] = model.t
-        b2 = np.nonzero((prev < 2) & (self.state == 2))[0]
-        if len(b2):
-            self.detach_time[b2] = model.t
+        model.lib.gather_sparse(len(self.jg_nodes), ptr(self.jg_nodes), ptr(self.jg_ptr), ptr(self.jg_idx),
+                                ptr(self.jfbe), ptr(model.fint))
+        if n_changed > 0:
+            self.lost_energy += float(self._lost_buf[0])
+            b1 = np.nonzero(np.isnan(self.break_time) & (self.state >= 1))[0]
+            if len(b1):
+                self.break_time[b1] = model.t
+            b2 = np.nonzero(np.isnan(self.detach_time) & (self.state == 2))[0]
+            if len(b2):
+                self.detach_time[b2] = model.t
 
     def stored_energy(self) -> float:
         return float(self.fsv[:, 5].sum())
@@ -396,6 +437,9 @@ class Model:
         self.no_dt_parts = ("fin",)         # small plates that are mass-scaled rather than setting the time step
         self._x, self._conn, self._h, self._mat, self._tg, self._part = [], [], [], [], [], []
         self._bconn, self._bsec, self._bmat, self._btg, self._bup = [], [], [], [], []
+        self._nn_count = 0
+        self._ne_count = 0
+        self._nb_count = 0
         self.beam_sections: list[BeamSection] = []
         self.sec_index = {}
         self.beam_parts = {}
@@ -417,8 +461,9 @@ class Model:
     # ---------------------------------------------------------------- building
     def add_nodes(self, xyz):
         xyz = np.atleast_2d(np.asarray(xyz, float))
-        start = sum(len(a) for a in self._x)
+        start = self._nn_count
         self._x.append(xyz)
+        self._nn_count += len(xyz)
         return np.arange(start, start + len(xyz), dtype=np.int32)
 
     def add_material(self, m: Material):
@@ -433,8 +478,9 @@ class Model:
 
     def add_shells(self, conn, h, mat, tgroup, part):
         conn = np.atleast_2d(np.asarray(conn, np.int32))
-        start = sum(len(c) for c in self._conn)
+        start = self._ne_count
         n = len(conn)
+        self._ne_count += n
         self._conn.append(conn)
         self._h.append(np.broadcast_to(np.asarray(h, float), (n,)).copy())
         self._mat.append(np.full(n, self.mat_index[mat] if isinstance(mat, str) else mat, np.int32))
@@ -448,8 +494,9 @@ class Model:
         `up` sets the reference strong-axis (+e3, web depth) direction; defaults to +Z for
         non-vertical members and +X for vertical columns."""
         conn = np.atleast_2d(np.asarray(conn, np.int32))
-        start = sum(len(c) for c in self._bconn)
+        start = self._nb_count
         n = len(conn)
+        self._nb_count += n
         sec_id = self.sec_index[section] if isinstance(section, str) else int(section)
         mat_id = self.mat_index[mat] if isinstance(mat, str) else int(mat)
         self._bconn.append(conn)
@@ -641,9 +688,13 @@ class Model:
             self.bg_idx = bslots.astype(np.int32)
 
             nsec = len(self.beam_sections)
+            self.s_nact = np.ascontiguousarray(np.array([s.n_active for s in self.beam_sections], np.int32))
             self.s_yf = np.ascontiguousarray(np.array([s.yf for s in self.beam_sections]))
             self.s_zf = np.ascontiguousarray(np.array([s.zf for s in self.beam_sections]))
             self.s_Af = np.ascontiguousarray(np.array([s.Af for s in self.beam_sections]))
+            self.s_props = np.ascontiguousarray(np.array(
+                [[s.A, s.Ix, s.Iy, s.ymax, s.zmax] for s in self.beam_sections], float
+            ))
             self.s_J = np.ascontiguousarray(np.array([s.J for s in self.beam_sections], float))
         else:
             self.bL0 = np.zeros(0)
@@ -651,9 +702,11 @@ class Model:
             self.beam_dt = np.zeros(0)
             self.bg_ptr = np.zeros(nn + 1, np.int32)
             self.bg_idx = np.zeros(0, np.int32)
+            self.s_nact = np.zeros(0, np.int32)
             self.s_yf = np.zeros((0, NFIB))
             self.s_zf = np.zeros((0, NFIB))
             self.s_Af = np.zeros((0, NFIB))
+            self.s_props = np.zeros((0, 5))
             self.s_J = np.zeros(0)
 
         for nd_i, m_i, r_i in self._added_nodal_mass:
@@ -707,6 +760,9 @@ class Model:
         # beam state
         self.bfac = np.ones(nb, float)
         self.bfac_prev = np.ones(nb, float)
+        sym_sec = np.array([s.is_doubly_sym for s in self.beam_sections], bool)
+        self.b_plastic = np.ascontiguousarray((~sym_sec[self.bsec]).astype(np.uint8) if nb > 0 else np.zeros(0, np.uint8))
+        self.bel = np.zeros((nb, 9))
         self.bq = np.zeros((nb, 6))
         self.bsig = np.zeros((nb, 3, NFIB))
         self.bepsp = np.zeros((nb, 3, NFIB))
@@ -719,7 +775,7 @@ class Model:
         self.fpat = np.zeros((nn, 6))
         self._prepared = False
         self.energy = np.zeros(4)          # IE (elastic + plastic), hourglass, plastic, thermal input
-        self.kinout = np.zeros(2)          # KE, damping work
+        self.kinout = np.zeros(3)          # KE, damping work, w_ext
         self.w_ext = 0.0
         self.ke0 = None
         self.t = 0.0
@@ -896,27 +952,43 @@ class Model:
         return ic
 
     def add_joint_set(self, js: JointSet, adjust_dt=True):
-        """Attach a JointSet after finalize(); optionally shrinks self.dt if any joint stiffness governs."""
-        if adjust_dt and hasattr(self, "mass"):
-            inv_m = 1.0 / self.mass[js.na]
-            has_b = js.nb >= 0
-            if has_b.any():
-                inv_m[has_b] += 1.0 / self.mass[js.nb[has_b]]
-            m_eff = 1.0 / inv_m
-            k_max = np.maximum(np.maximum(js.kt, js.kc), js.kv)
-            pos = k_max > 0
-            if pos.any():
-                dt_tr = getattr(self, "dt_safety", 0.9) * 2.0 * np.sqrt(m_eff[pos] / k_max[pos])
-                self.dt = min(self.dt, float(dt_tr.min()))
-            rot_pos = js.kr > 0
-            if rot_pos.any():
-                inv_I = 1.0 / self.rinert[js.na]
-                if has_b.any():
-                    inv_I[has_b] += 1.0 / self.rinert[js.nb[has_b]]
-                I_eff = 1.0 / inv_I
-                dt_rot = getattr(self, "dt_safety", 0.9) * 2.0 * np.sqrt(I_eff[rot_pos] / js.kr[rot_pos])
-                self.dt = min(self.dt, float(dt_rot.min()))
+        """Attach a JointSet after finalize() and enforce full nodal Gershgorin Courant stability across all beams + joints."""
         self.joint_sets.append(js)
+        if adjust_dt and hasattr(self, "mass"):
+            K_tr = np.zeros(self.nn)
+            K_rot = np.zeros(self.nn)
+            if self.nb > 0:
+                sec_A = np.array([s.A for s in self.beam_sections])[self.bsec]
+                sec_Imax = np.array([max(s.Ix, s.Iy) for s in self.beam_sections])[self.bsec]
+                sec_J = np.array([s.J for s in self.beam_sections])[self.bsec]
+                bE = np.array([m.E.max() for m in self.materials])[self.bmat]
+                bG = bE / (2.0 * (1.0 + np.array([m.nu for m in self.materials])[self.bmat]))
+                L0 = self.bL0
+                kb_tr = np.maximum(bE * sec_A / L0, 12.0 * bE * sec_Imax / (L0 ** 3))
+                kb_rot = np.maximum(6.0 * bE * sec_Imax / L0, 2.0 * bG * sec_J / L0)
+                for I in range(2):
+                    np.add.at(K_tr, self.bconn[:, I], 2.0 * kb_tr)
+                    np.add.at(K_rot, self.bconn[:, I], kb_rot)
+            for jset in self.joint_sets:
+                has_b = jset.nb >= 0
+                is_tie = jset.kind == 4
+                k_max = np.where(is_tie, jset.kt, np.maximum(np.maximum(jset.kt, jset.kc), jset.kv))
+                np.add.at(K_tr, jset.na, 2.0 * k_max)
+                if has_b.any():
+                    np.add.at(K_tr, jset.nb[has_b], 2.0 * k_max[has_b])
+                kr_eff = np.where(is_tie, 0.0, jset.kr)
+                np.add.at(K_rot, jset.na, 2.0 * kr_eff)
+                if has_b.any():
+                    np.add.at(K_rot, jset.nb[has_b], 2.0 * kr_eff[has_b])
+            if self.dt_min is not None:
+                m_req = 0.25 * K_tr * (self.dt_min ** 2)
+                I_req = 0.25 * K_rot * (self.dt_min ** 2)
+                np.maximum(self.mass, m_req, out=self.mass)
+                np.maximum(self.rinert, I_req, out=self.rinert)
+                self.added_mass = float(self.mass.sum() - self.mass_phys.sum())
+            w2_max = max(float((K_tr / self.mass).max()), float((K_rot / self.rinert).max()))
+            if w2_max > 0.0:
+                self.dt = min(self.dt, getattr(self, "dt_safety", 0.9) * 2.0 / float(np.sqrt(w2_max)))
         self._prepared = False
         return js
 
@@ -959,7 +1031,8 @@ class Model:
         self._args_beam = (self.nb, ptr(self.bconn), ptr(self.bsec), ptr(self.bmat), ptr(self.btg),
                            ptr(self.bL0), ptr(self.be0), ptr(self.bfac), ptr(self.bfac_prev),
                            ptr(self.x), ptr(self.Rnode), ptr(self.Tnow), ptr(self.Tprev), C.byref(self.matstruct),
-                           NFIB, ptr(self.s_yf), ptr(self.s_zf), ptr(self.s_Af), ptr(self.s_J),
+                           NFIB, ptr(self.s_nact), ptr(self.s_yf), ptr(self.s_zf), ptr(self.s_Af),
+                           ptr(self.s_props), ptr(self.s_J), ptr(self.b_plastic), ptr(self.bel),
                            ptr(self.bq), ptr(self.bsig), ptr(self.bepsp), ptr(self.bm1),
                            ptr(self.fbe), ptr(self.bdiag), ptr(self.energy), ptr(self.removed_energy))
         self._args_bgather = (self.nn, ptr(self.bg_ptr), ptr(self.bg_idx), ptr(self.fbe), ptr(self.fint),
@@ -1009,19 +1082,10 @@ class Model:
             c_ = list(a)
             c_[14] = dt
             L.contact_impact(*c_)
-        work_tr = self._pat_idx is not None and lam != 0.0
-        work_rot = self._pat_rot_idx is not None and lam != 0.0
-        if work_tr:
-            v_old = self.v.ravel()[self._pat_idx]
-        if work_rot:
-            w_old = self.w.ravel()[self._pat_rot_idx]
         ai = self._args_int
         ai[7], ai[16], ai[17] = lam, self.damping, dt
         L.integrate(*ai)
-        if work_tr:
-            self.w_ext += lam * float(self._pat_val @ (0.5 * (v_old + self.v.ravel()[self._pat_idx]))) * dt
-        if work_rot:
-            self.w_ext += lam * float(self._pat_rot_val @ (0.5 * (w_old + self.w.ravel()[self._pat_rot_idx]))) * dt
+        self.w_ext = float(self.kinout[2])
         self.t += dt
         self.cycle += 1
 

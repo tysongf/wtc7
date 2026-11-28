@@ -1,0 +1,77 @@
+{
+  "nodes": 24762,
+  "dofs": 148572,
+  "beams": 16939,
+  "dt_s": 0.00017,
+  "added_mass_pct": 0.337,
+  "assembly_wall_s": 1.69,
+  "settle_wall_s": 29.92,
+  "t_settled_s": 1.85,
+  "ke_over_ie": 0.000654,
+  "max_roof_vz_in_s": 0.07987,
+  "energy_rel_error": 0.00061,
+  "total_above_fl8_kip": 173636.8,
+  "nist_target_fl8_kip": 174136.0,
+  "total_fl8_diff_pct": -0.29,
+  "column_loads_fl8": [
+    {
+      "col": "79",
+      "model_kip": 7631.5,
+      "nist_kip": 7525.0,
+      "diff_pct": 1.4
+    },
+    {
+      "col": "80",
+      "model_kip": 5486.9,
+      "nist_kip": 5478.0,
+      "diff_pct": 0.2
+    },
+    {
+      "col": "81",
+      "model_kip": 4920.4,
+      "nist_kip": 4945.0,
+      "diff_pct": -0.5
+    },
+    {
+      "col": "76",
+      "model_kip": 5868.9,
+      "nist_kip": 5854.0,
+      "diff_pct": 0.3
+    },
+    {
+      "col": "77",
+      "model_kip": 3597.2,
+      "nist_kip": 3346.0,
+      "diff_pct": 7.5
+    },
+    {
+      "col": "78",
+      "model_kip": 3451.1,
+      "nist_kip": 3409.0,
+      "diff_pct": 1.2
+    },
+    {
+      "col": "44",
+      "model_kip": 2812.2,
+      "nist_kip": 2962.0,
+      "diff_pct": -5.1
+    }
+  ],
+  "joint_status_at_settle": {
+    "interior_total": 7162,
+    "interior_sheared": 0,
+    "interior_detached": 0,
+    "spandrel_total": 5436,
+    "spandrel_detached": 0,
+    "splice_total": 1781,
+    "splice_detached": 0,
+    "slab_total": 3357,
+    "slab_detached": 0
+  },
+  "T_1_ew_sway_s": 4.864,
+  "T_1_ns_sway_s": 5.459,
+  "f_1_ew_hz": 0.206,
+  "f_1_ns_hz": 0.183,
+  "T_v1_col79_s": 0.6498,
+  "t_r_removal_s": 0.06498
+}

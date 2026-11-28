@@ -44,9 +44,22 @@ class WShape:
         return np.append(y, 0.0), np.append(a, self.A - a.sum())
 
 
+# AISC 8th Edition (1980) W36x16.5 shapes specified on 1985 Cantor S-15 / S-23 drawings
+# (superseded by W36x231..W36x302 in modern AISC tables):
+_AISC8_SHAPES = {
+    "W36X300": (88.3, 36.74, 16.655, 0.945, 1.680, 20300.0, 1300.0, 64.2, 398000.0, 300.0),
+    "W36X280": (82.4, 36.52, 16.595, 0.885, 1.570, 18900.0, 1200.0, 52.6, 366000.0, 280.0),
+    "W36X260": (76.5, 36.26, 16.550, 0.840, 1.440, 17300.0, 1090.0, 41.5, 330000.0, 260.0),
+    "W36X245": (72.1, 36.08, 16.510, 0.800, 1.350, 16100.0, 1010.0, 34.6, 305000.0, 245.0),
+    "W36X230": (67.6, 35.90, 16.470, 0.760, 1.260, 15000.0, 940.0,  28.6, 282000.0, 230.0),
+}
+
+
 @lru_cache(maxsize=None)
 def shape(name):
     key = name.upper().replace(" ", "")
+    if key in _AISC8_SHAPES:
+        return WShape(name, *_AISC8_SHAPES[key])
     with open(CSV) as f:
         for r in csv.DictReader(f):
             if r["shape"].upper() == key:

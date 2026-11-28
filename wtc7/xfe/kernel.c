@@ -381,6 +381,21 @@ void gather_add(int nn, const int *ptr, const int *idx, const double *fe, double
     }
 }
 
+/* Add element/joint endpoint forces into f (nn*6) only over the `nact` touched nodes. */
+void gather_sparse(int nact, const int *nodes, const int *ptr, const int *idx, const double *fe, double *f)
+{
+#pragma omp parallel for schedule(static) if (nact > 256)
+    for (int i = 0; i < nact; ++i) {
+        int n = nodes[i];
+        double s[6] = {0, 0, 0, 0, 0, 0};
+        for (int k = ptr[n]; k < ptr[n + 1]; ++k) {
+            const double *p = fe + 6 * (size_t)idx[k];
+            for (int j = 0; j < 6; ++j) s[j] += p[j];
+        }
+        for (int j = 0; j < 6; ++j) f[6 * (size_t)n + j] += s[j];
+    }
+}
+
 /* Central-difference update with mass-proportional damping c (1/s) and optional finite
  * nodal rotation matrix update Rnode (nn*9, row-major 3x3, NULL if unused).
  * fix: nn*6 flags (1 fixed, 2 prescribed velocity vpres). cons: ncons constraints (node, type 0 = translation, 1 = rotation,
@@ -391,27 +406,104 @@ void integrate(int nn, double *x, double *Rnode, double *v, double *w, const dou
                int ncons, const int *cnode, const int *ctype, const double *cdir,
                double c, double dt, double *out)
 {
-    double ke = 0.0, ed = 0.0;
+    double ke = 0.0, ed = 0.0, wext = 0.0;
     const double a = 1.0 - 0.5 * c * dt, b = 1.0 / (1.0 + 0.5 * c * dt);
-#pragma omp parallel for schedule(static) reduction(+ : ke, ed)
+    if (ncons == 0) {
+#pragma omp parallel for schedule(static) reduction(+ : ke, ed, wext)
+        for (int n = 0; n < nn; ++n) {
+            const double m = mass[n], I = rinert[n];
+            double *vv = v + 3 * (size_t)n, *ww = w + 3 * (size_t)n;
+            for (int k = 0; k < 3; ++k) {
+                size_t j = 6 * (size_t)n + k;
+                double vo = vv[k];
+                if (fix[j]) {
+                    vv[k] = (fix[j] == 2) ? vpres[j] : 0.0;
+                    if (lam != 0.0 && fpat[j] != 0.0) wext += lam * fpat[j] * 0.5 * (vo + vv[k]) * dt;
+                } else {
+                    double fp = lam * fpat[j];
+                    vv[k] = (a * vo + dt * (fp - fint[j]) / m) * b;
+                    ed += c * m * 0.25 * (vo + vv[k]) * (vo + vv[k]) * dt;
+                    if (fp != 0.0) wext += fp * 0.5 * (vo + vv[k]) * dt;
+                }
+                x[3 * (size_t)n + k] += dt * vv[k];
+            }
+            for (int k = 0; k < 3; ++k) {
+                size_t j = 6 * (size_t)n + 3 + k;
+                double wo = ww[k];
+                if (fix[j]) {
+                    ww[k] = (fix[j] == 2) ? vpres[j] : 0.0;
+                    if (lam != 0.0 && fpat[j] != 0.0) wext += lam * fpat[j] * 0.5 * (wo + ww[k]) * dt;
+                } else {
+                    double fp = lam * fpat[j];
+                    ww[k] = (a * wo + dt * (fp - fint[j]) / I) * b;
+                    ed += c * I * 0.25 * (wo + ww[k]) * (wo + ww[k]) * dt;
+                    if (fp != 0.0) wext += fp * 0.5 * (wo + ww[k]) * dt;
+                }
+            }
+            if (Rnode) {
+                double tx = ww[0] * dt, ty = ww[1] * dt, tz = ww[2] * dt;
+                double phi2 = tx * tx + ty * ty + tz * tz;
+                if (phi2 > 0.0) {
+                    double c1, c2;
+                    if (phi2 < 0.01) {
+                        c1 = 1.0 - phi2 * ((1.0 / 6.0) - phi2 * ((1.0 / 120.0) - phi2 * (1.0 / 5040.0)));
+                        c2 = 0.5 - phi2 * ((1.0 / 24.0) - phi2 * ((1.0 / 720.0) - phi2 * (1.0 / 40320.0)));
+                    } else {
+                        double phi = sqrt(phi2);
+                        c1 = sin(phi) / phi;
+                        c2 = (1.0 - cos(phi)) / phi2;
+                    }
+                    double dR[9] = {
+                        1.0 - c2 * (ty * ty + tz * tz), -c1 * tz + c2 * tx * ty,          c1 * ty + c2 * tx * tz,
+                        c1 * tz + c2 * tx * ty,          1.0 - c2 * (tx * tx + tz * tz), -c1 * tx + c2 * ty * tz,
+                       -c1 * ty + c2 * tx * tz,          c1 * tx + c2 * ty * tz,          1.0 - c2 * (tx * tx + ty * ty)
+                    };
+                    double *R = Rnode + 9 * (size_t)n;
+                    double Rn[9];
+                    for (int r = 0; r < 3; ++r)
+                        for (int col = 0; col < 3; ++col)
+                            Rn[3 * r + col] = dR[3 * r + 0] * R[col] + dR[3 * r + 1] * R[3 + col] + dR[3 * r + 2] * R[6 + col];
+                    for (int j = 0; j < 9; ++j) R[j] = Rn[j];
+                }
+            }
+            ke += 0.5 * m * dot(vv, vv) + 0.5 * I * dot(ww, ww);
+        }
+        out[0] = ke;
+        out[1] += ed;
+        out[2] += wext;
+        return;
+    }
+#pragma omp parallel for schedule(static) reduction(+ : ed, wext)
     for (int n = 0; n < nn; ++n) {
         const double m = mass[n], I = rinert[n];
         for (int k = 0; k < 3; ++k) {
             size_t j = 6 * (size_t)n + k;
             double *vv = v + 3 * (size_t)n + k;
-            if (fix[j]) { *vv = (fix[j] == 2) ? vpres[j] : 0.0; continue; }
-            double f = lam * fpat[j] - fint[j];
             double vo = *vv;
+            if (fix[j]) {
+                *vv = (fix[j] == 2) ? vpres[j] : 0.0;
+                if (lam != 0.0 && fpat[j] != 0.0) wext += lam * fpat[j] * 0.5 * (vo + *vv) * dt;
+                continue;
+            }
+            double fp = lam * fpat[j];
+            double f = fp - fint[j];
             *vv = (a * vo + dt * f / m) * b;
             ed += c * m * 0.25 * (vo + *vv) * (vo + *vv) * dt;
+            if (fp != 0.0) wext += fp * 0.5 * (vo + *vv) * dt;
         }
         for (int k = 0; k < 3; ++k) {
             size_t j = 6 * (size_t)n + 3 + k;
             double *ww = w + 3 * (size_t)n + k;
-            if (fix[j]) { *ww = (fix[j] == 2) ? vpres[j] : 0.0; continue; }
             double wo = *ww;
-            *ww = (a * wo + dt * (lam * fpat[j] - fint[j]) / I) * b;
+            if (fix[j]) {
+                *ww = (fix[j] == 2) ? vpres[j] : 0.0;
+                if (lam != 0.0 && fpat[j] != 0.0) wext += lam * fpat[j] * 0.5 * (wo + *ww) * dt;
+                continue;
+            }
+            double fp = lam * fpat[j];
+            *ww = (a * wo + dt * (fp - fint[j]) / I) * b;
             ed += c * I * 0.25 * (wo + *ww) * (wo + *ww) * dt;
+            if (fp != 0.0) wext += fp * 0.5 * (wo + *ww) * dt;
         }
     }
     for (int i = 0; i < ncons; ++i) {
@@ -431,8 +523,14 @@ void integrate(int nn, double *x, double *Rnode, double *v, double *w, const dou
             double phi2 = tx * tx + ty * ty + tz * tz;
             if (phi2 > 0.0) {
                 double c1, c2;
-                if (phi2 < 1e-12) { c1 = 1.0 - phi2 / 6.0; c2 = 0.5 - phi2 / 24.0; }
-                else { double phi = sqrt(phi2); c1 = sin(phi) / phi; c2 = (1.0 - cos(phi)) / phi2; }
+                if (phi2 < 0.01) {
+                    c1 = 1.0 - phi2 * ((1.0 / 6.0) - phi2 * ((1.0 / 120.0) - phi2 * (1.0 / 5040.0)));
+                    c2 = 0.5 - phi2 * ((1.0 / 24.0) - phi2 * ((1.0 / 720.0) - phi2 * (1.0 / 40320.0)));
+                } else {
+                    double phi = sqrt(phi2);
+                    c1 = sin(phi) / phi;
+                    c2 = (1.0 - cos(phi)) / phi2;
+                }
                 double dR[9] = {
                     1.0 - c2 * (ty * ty + tz * tz), -c1 * tz + c2 * tx * ty,          c1 * ty + c2 * tx * tz,
                     c1 * tz + c2 * tx * ty,          1.0 - c2 * (tx * tx + tz * tz), -c1 * tx + c2 * ty * tz,
@@ -450,6 +548,7 @@ void integrate(int nn, double *x, double *Rnode, double *v, double *w, const dou
     }
     out[0] = ke;
     out[1] += ed;
+    out[2] += wext;
 }
 
 /* Coulomb friction on a penalty tangential spring. ft: stored tangential force (3).
@@ -710,7 +809,10 @@ static inline void rel_rot(const double *e1, const double *e2, const double *e3,
     double tr = dot(e1, a1) + dot(e2, a2) + dot(e3, a3);
     double c = 0.5 * (tr - 1.0);
     double fac;
-    if (s > 1e-7) {
+    if (c > 0.0 && s < 0.10) {
+        double s2 = s * s;
+        fac = 1.0 + s2 * ((1.0 / 6.0) + s2 * ((3.0 / 40.0) + s2 * (5.0 / 112.0)));
+    } else if (s > 1e-7) {
         if (c > 1.0) c = 1.0;
         if (c < -1.0) c = -1.0;
         fac = atan2(s, c) / s;
@@ -722,14 +824,9 @@ static inline void rel_rot(const double *e1, const double *e2, const double *e3,
     *th3 = fac * s3;
 }
 
-/* Uniaxial 1D return map on tabulated flow curves; updates *s and returns dep >= 0. */
-static inline double uniaxial_point(const Mat *m, int k, double T1, double E0, double E1, double dth,
-                                    double symin2, double symin2_t, double de, double *s, double ep0)
+/* Uniaxial 1D plastic return map when |st| > sy_min; updates *s and returns dep >= 0. */
+static double uniaxial_return(const Mat *m, int k, double T1, double E1, int tens, double st, double *s, double ep0)
 {
-    double st = (E1 / E0) * (*s) + E1 * (de - dth);
-    if (m->kind[k] == 1) { *s = st; return 0.0; }
-    int tens = (m->kind[k] == 2) && (st > 0.0);
-    if (st * st <= (tens ? symin2_t : symin2)) { *s = st; return 0.0; }
     double abst = fabs(st), sgn = (st >= 0.0) ? 1.0 : -1.0;
     double sy, H;
     flow(m, k, T1, ep0, &sy, &H, tens);
@@ -751,7 +848,7 @@ static inline double uniaxial_point(const Mat *m, int k, double T1, double E0, d
 }
 
 /* 3D co-rotational Euler-Bernoulli fibre beam-column with 3-point Gauss-Lobatto
- * integration along length x nfib fibres across the section, Saint-Venant torsion,
+ * integration along length x nact active fibres across the section, Saint-Venant torsion,
  * and smooth removal multiplier bfac[b] in [0, 1].
  * fbe: nb*12 global nodal forces/moments (nA: 0..5, nB: 6..11).
  * bdiag: nb*6 [N_ax, m2A, m2B, m3A, m3B, max_epsp]. */
@@ -759,7 +856,10 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
                  const double *bL0, const double *be0, const double *bfac, double *bfac_prev,
                  const double *x, const double *Rnode,
                  const double *Tnow, const double *Tprev, const Mat *M,
-                 int nfib, const double *syf, const double *szf, const double *sAf, const double *sJ,
+                 int nfib, const int *snact, const double *syf, const double *szf, const double *sAf,
+                 const double *sProps, /* nsec*5: [A, Ix, Iy, ymax, zmax] */
+                 const double *sJ,
+                 unsigned char *b_plastic, double *bel, /* nb*9: [sbar, k2, k3] x 3 IPs */
                  double *bq, double *bsig, double *bepsp, double *bm1,
                  double *fbe, double *bdiag, double *energy, double *rem_out)
 {
@@ -767,8 +867,8 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
     static const double W_GL[3]  = {1.0 / 3.0, 4.0 / 3.0, 1.0 / 3.0};
     double eIE = 0.0, ePL = 0.0, eTH = 0.0, eREM = 0.0;
     enum { MAXM = 32, MAXG = 64 };
-    double bound2[MAXM][MAXG], bound2t[MAXM][MAXG];
-    double Ecur[MAXM][MAXG], Eold[MAXM][MAXG], dthm[MAXM][MAXG];
+    double bound2[MAXM][MAXG], bound2t[MAXM][MAXG], bound_min[MAXM][MAXG];
+    double Ecur[MAXM][MAXG], Eold[MAXM][MAXG], Rcur[MAXM][MAXG], dthm[MAXM][MAXG];
     int ng = 0;
     for (int b = 0; b < nb; ++b) if (btg[b] + 1 > ng) ng = btg[b] + 1;
     for (int k = 0; k < M->nmat && k < MAXM; ++k)
@@ -777,8 +877,10 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
             double ftm = (M->kind[k] == 2) ? flow_min(M, k, Tnow[g], 1) : fm;
             bound2[k][g] = fm * fm * (1.0 - 1e-12);
             bound2t[k][g] = ftm * ftm * (1.0 - 1e-12);
+            bound_min[k][g] = ((fm < ftm) ? fm : ftm) * (1.0 - 1e-6);
             Ecur[k][g] = tab_T(M, M->E, k, Tnow[g]);
             Eold[k][g] = tab_T(M, M->E, k, Tprev[g]);
+            Rcur[k][g] = Ecur[k][g] / Eold[k][g];
             dthm[k][g] = tab_T(M, M->eth, k, Tnow[g]) - tab_T(M, M->eth, k, Tprev[g]);
         }
 
@@ -787,21 +889,32 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
         double *o = fbe + 12 * (size_t)b;
         double *dg = bdiag + 6 * (size_t)b;
         const double fac = bfac[b], fac0 = bfac_prev[b];
-        const int km = bmat[b], gk = btg[b], sec = bsec[b];
+        const int km = bmat[b], gk = btg[b], sec = bsec[b], nact = snact[sec];
+        const int mkind = M->kind[km];
         const double L0 = bL0[b];
-        const double E0 = Eold[km][gk], E1 = Ecur[km][gk], nu = M->nu[km];
+        const double E0 = Eold[km][gk], E1 = Ecur[km][gk], rE = Rcur[km][gk], nu = M->nu[km];
         const double G0 = E0 / (2.0 * (1.0 + nu)), G1 = E1 / (2.0 * (1.0 + nu));
+        const double *sp = sProps + 5 * (size_t)sec;
 
         if (fac0 > fac) {
             /* Elastic energy shed by smooth element removal over this cycle */
             double u_el = 0.0;
-            const double *Af = sAf + (size_t)sec * nfib;
-            const double *sg = bsig + (size_t)b * 3 * nfib;
-            for (int ip = 0; ip < 3; ++ip) {
-                double wg = 0.5 * L0 * W_GL[ip];
-                for (int f = 0; f < nfib; ++f) {
-                    double s = sg[ip * nfib + f];
-                    u_el += 0.5 * (s * s / E0) * wg * Af[f];
+            if (!b_plastic[b]) {
+                const double *el = bel + 9 * (size_t)b;
+                for (int ip = 0; ip < 3; ++ip) {
+                    double wg = 0.5 * L0 * W_GL[ip];
+                    double sb0 = el[3 * ip + 0], k20 = el[3 * ip + 1], k30 = el[3 * ip + 2];
+                    u_el += 0.5 * (wg / E0) * (sp[0] * sb0 * sb0 + sp[1] * k20 * k20 + sp[2] * k30 * k30);
+                }
+            } else {
+                const double *Af = sAf + (size_t)sec * nfib;
+                const double *sg = bsig + (size_t)b * 3 * nfib;
+                for (int ip = 0; ip < 3; ++ip) {
+                    double wg = 0.5 * L0 * W_GL[ip];
+                    for (int f = 0; f < nact; ++f) {
+                        double s = sg[ip * nfib + f];
+                        u_el += 0.5 * (s * s / E0) * wg * Af[f];
+                    }
                 }
             }
             if (sJ[sec] > 0.0) u_el += 0.5 * bm1[b] * bm1[b] * L0 / (G0 * sJ[sec]);
@@ -858,39 +971,103 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
         q[0] = eps0; q[1] = th2A; q[2] = th2B; q[3] = th3A; q[4] = th3B; q[5] = dth1;
 
         const double T1 = Tnow[gk], dth = dthm[km][gk];
-        const double sb2 = bound2[km][gk], sb2t = bound2t[km][gk];
-        const double *yf = syf + (size_t)sec * nfib;
-        const double *zf = szf + (size_t)sec * nfib;
-        const double *Af = sAf + (size_t)sec * nfib;
-
+        const double de0_m = deps0 - dth;
         double Nax = 0.0, m2A = 0.0, m2B = 0.0, m3A = 0.0, m3B = 0.0, max_ep = 0.0;
-        for (int ip = 0; ip < 3; ++ip) {
-            double xi = XI_GL[ip], wg2 = 0.5 * W_GL[ip];
-            double bA = (3.0 * xi - 1.0) / L0, bB = (3.0 * xi + 1.0) / L0;
-            double dk2 = bA * dth2A + bB * dth2B;
-            double dk3 = bA * dth3A + bB * dth3B;
-            double Ng = 0.0, M2g = 0.0, M3g = 0.0;
-            double *sg = bsig + ((size_t)b * 3 + ip) * nfib;
-            double *epg = bepsp + ((size_t)b * 3 + ip) * nfib;
-            for (int f = 0; f < nfib; ++f) {
-                double de = deps0 + zf[f] * dk2 - yf[f] * dk3;
-                double so = sg[f];
-                double dep = uniaxial_point(M, km, T1, E0, E1, dth, sb2, sb2t, de, &sg[f], epg[f]);
-                epg[f] += dep;
-                if (epg[f] > max_ep) max_ep = epg[f];
-                double sf = sg[f], af = Af[f], vol = wg2 * L0 * af;
-                eIE += fac * 0.5 * (so + sf) * (de - dth) * vol;
-                eTH -= fac * 0.5 * (so + sf) * dth * vol;
-                ePL += fac * dep * fabs(sf) * vol;
-                Ng  += sf * af;
-                M2g += zf[f] * sf * af;
-                M3g -= yf[f] * sf * af;
+
+        if (!b_plastic[b]) {
+            double *el = bel + 9 * (size_t)b;
+            double sb1[3], k21[3], k31[3], dk2_arr[3], dk3_arr[3];
+            int promote = 0;
+            const double slim = bound_min[km][gk];
+            for (int ip = 0; ip < 3; ++ip) {
+                double xi = XI_GL[ip];
+                double bA = (3.0 * xi - 1.0) / L0, bB = (3.0 * xi + 1.0) / L0;
+                dk2_arr[ip] = bA * dth2A + bB * dth2B;
+                dk3_arr[ip] = bA * dth3A + bB * dth3B;
+                sb1[ip] = rE * el[3 * ip + 0] + E1 * de0_m;
+                k21[ip] = rE * el[3 * ip + 1] + E1 * dk2_arr[ip];
+                k31[ip] = rE * el[3 * ip + 2] + E1 * dk3_arr[ip];
+                if (mkind != 1) {
+                    double s_ub = fabs(sb1[ip]) + fabs(k21[ip]) * sp[4] + fabs(k31[ip]) * sp[3];
+                    if (s_ub > slim) promote = 1;
+                }
             }
-            Nax += wg2 * Ng;
-            m2A += wg2 * (3.0 * xi - 1.0) * M2g;
-            m2B += wg2 * (3.0 * xi + 1.0) * M2g;
-            m3A += wg2 * (3.0 * xi - 1.0) * M3g;
-            m3B += wg2 * (3.0 * xi + 1.0) * M3g;
+            if (!promote) {
+                const double A_s = sp[0], Ix_s = sp[1], Iy_s = sp[2];
+                for (int ip = 0; ip < 3; ++ip) {
+                    double xi = XI_GL[ip], wg2 = 0.5 * W_GL[ip], wgL = wg2 * L0;
+                    double sb0 = el[3 * ip + 0], k20 = el[3 * ip + 1], k30 = el[3 * ip + 2];
+                    el[3 * ip + 0] = sb1[ip];
+                    el[3 * ip + 1] = k21[ip];
+                    el[3 * ip + 2] = k31[ip];
+                    eIE += fac * 0.5 * wgL * (A_s * (sb0 + sb1[ip]) * de0_m
+                                            + Ix_s * (k20 + k21[ip]) * dk2_arr[ip]
+                                            + Iy_s * (k30 + k31[ip]) * dk3_arr[ip]);
+                    if (dth != 0.0) eTH -= fac * 0.5 * wgL * A_s * (sb0 + sb1[ip]) * dth;
+                    double Ng  = A_s * sb1[ip];
+                    double M2g = Ix_s * k21[ip];
+                    double M3g = Iy_s * k31[ip];
+                    Nax += wg2 * Ng;
+                    m2A += wg2 * (3.0 * xi - 1.0) * M2g;
+                    m2B += wg2 * (3.0 * xi + 1.0) * M2g;
+                    m3A += wg2 * (3.0 * xi - 1.0) * M3g;
+                    m3B += wg2 * (3.0 * xi + 1.0) * M3g;
+                }
+            } else {
+                /* Materialize exact pre-step fibre stresses and promote element b to fibre tracking */
+                const double *yf = syf + (size_t)sec * nfib;
+                const double *zf = szf + (size_t)sec * nfib;
+                for (int ip = 0; ip < 3; ++ip) {
+                    double sb0 = el[3 * ip + 0], k20 = el[3 * ip + 1], k30 = el[3 * ip + 2];
+                    double *sg = bsig + ((size_t)b * 3 + ip) * nfib;
+                    for (int f = 0; f < nact; ++f)
+                        sg[f] = sb0 + k20 * zf[f] - k30 * yf[f];
+                }
+                b_plastic[b] = 1;
+            }
+        }
+
+        if (b_plastic[b]) {
+            const double sb2 = bound2[km][gk], sb2t = bound2t[km][gk];
+            const double *yf = syf + (size_t)sec * nfib;
+            const double *zf = szf + (size_t)sec * nfib;
+            const double *Af = sAf + (size_t)sec * nfib;
+            for (int ip = 0; ip < 3; ++ip) {
+                double xi = XI_GL[ip], wg2 = 0.5 * W_GL[ip];
+                double bA = (3.0 * xi - 1.0) / L0, bB = (3.0 * xi + 1.0) / L0;
+                double dk2 = bA * dth2A + bB * dth2B;
+                double dk3 = bA * dth3A + bB * dth3B;
+                double Ng = 0.0, M2g = 0.0, M3g = 0.0;
+                double *sg = bsig + ((size_t)b * 3 + ip) * nfib;
+                double *epg = bepsp + ((size_t)b * 3 + ip) * nfib;
+                for (int f = 0; f < nact; ++f) {
+                    double dem = de0_m + zf[f] * dk2 - yf[f] * dk3;
+                    double so = sg[f];
+                    double st = rE * so + E1 * dem;
+                    double sf = st, dep = 0.0;
+                    if (mkind != 1) {
+                        int tens = (mkind == 2) && (st > 0.0);
+                        if (st * st > (tens ? sb2t : sb2)) {
+                            dep = uniaxial_return(M, km, T1, E1, tens, st, &sf, epg[f]);
+                            epg[f] += dep;
+                        }
+                    }
+                    sg[f] = sf;
+                    if (epg[f] > max_ep) max_ep = epg[f];
+                    double af = Af[f], vol = wg2 * L0 * af;
+                    eIE += fac * 0.5 * (so + sf) * dem * vol;
+                    if (dth != 0.0) eTH -= fac * 0.5 * (so + sf) * dth * vol;
+                    if (dep != 0.0) ePL += fac * dep * fabs(sf) * vol;
+                    Ng  += sf * af;
+                    M2g += zf[f] * sf * af;
+                    M3g -= yf[f] * sf * af;
+                }
+                Nax += wg2 * Ng;
+                m2A += wg2 * (3.0 * xi - 1.0) * M2g;
+                m2B += wg2 * (3.0 * xi + 1.0) * M2g;
+                m3A += wg2 * (3.0 * xi - 1.0) * M3g;
+                m3B += wg2 * (3.0 * xi + 1.0) * M3g;
+            }
         }
 
         double m1_old = (G1 / G0) * bm1[b];
@@ -925,26 +1102,62 @@ void beam_forces(int nb, const int *bconn, const int *bsec, const int *bmat, con
  *        2 = elastoplastic moment connection (MC), 3 = column splice (milled compression + plate tension/shear).
  * jstate: 0 = intact, 1 = bolts/welds broken (seat or milled bearing active until walk-off), 2 = detached.
  * jfsv (nj*8): [N_ten, V_shear, M_mag, u1, u_lat, stored_el_energy, cum_plastic_work, step_lost_energy]. */
-void joints(int nj, const int *jna, const int *jnb, const int *jkind, const double *jpB,
-            const double *jr0, const double *je0,
-            const double *kt, const double *kc, const double *kv, const double *gap_c,
-            const double *walk_ax, const double *walk_lat, const double *kr,
-            const double *ncap, const double *vcap, const double *mpcap, const double *thu,
-            unsigned char *jstate, double *jq, const double *x, const double *Rnode,
-            double *fint, double *jfsv)
+int joints(int nj, const int *jna, const int *jnb, const int *jkind, const double *jpB,
+           const double *jr0, const double *je0,
+           const double *kt, const double *kc, const double *kv, const double *gap_c,
+           const double *walk_ax, const double *walk_lat, const double *kr,
+           const double *ncap, const double *vcap, const double *mpcap, const double *thu,
+           unsigned char *jstate, double *jq, const double *x, const double *Rnode,
+           double *jfbe, double *jfsv, double *lost_out)
 {
     static const double R_EYE[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    int n_changed = 0;
+    double step_lost = 0.0;
+#pragma omp parallel for schedule(static) reduction(+ : n_changed, step_lost) if (nj > 256)
     for (int i = 0; i < nj; ++i) {
         double *o = jfsv + 8 * (size_t)i;
+        double *fe = jfbe + 12 * (size_t)i;
+        for (int j = 0; j < 12; ++j) fe[j] = 0.0;
         o[7] = 0.0;
         if (jstate[i] == 2) {
             o[0] = o[1] = o[2] = o[5] = 0.0;
             continue;
         }
+        unsigned char st_prev = jstate[i];
         const int nA = jna[i], nB = jnb[i], kind = jkind[i];
         const double *xA = x + 3 * (size_t)nA;
-        const double *RA = Rnode + 9 * (size_t)nA;
         const double *xB = (nB >= 0) ? (x + 3 * (size_t)nB) : (jpB + 3 * (size_t)i);
+
+        /* kind == 4: central-force pin-ended axial tie (composite slab membrane tie across a bay) */
+        if (kind == 4) {
+            const double *r0 = jr0 + 3 * (size_t)i;
+            double L0 = sqrt(dot(r0, r0));
+            double dx[3] = {xA[0] - xB[0], xA[1] - xB[1], xA[2] - xB[2]};
+            double L = sqrt(dot(dx, dx));
+            if (L < 1e-12) L = 1e-12;
+            double dl = L - L0;
+            double Nten = (dl > 0.0) ? kt[i] * dl : 0.0;
+            double u_el = (dl > 0.0) ? 0.5 * kt[i] * dl * dl : 0.0;
+            if (ncap[i] > 0.0 && Nten > ncap[i]) {
+                jstate[i] = 2;
+                n_changed += 1;
+                o[0] = Nten; o[1] = o[2] = 0.0; o[3] = dl; o[4] = o[5] = 0.0;
+                o[7] = u_el;
+                step_lost += u_el;
+                continue;
+            }
+            if (Nten > 0.0) {
+                for (int k = 0; k < 3; ++k) {
+                    double fk = Nten * (dx[k] / L);
+                    fe[k] = fk;
+                    fe[6 + k] = -fk;
+                }
+            }
+            o[0] = Nten; o[1] = o[2] = 0.0; o[3] = dl; o[4] = 0.0; o[5] = u_el;
+            continue;
+        }
+
+        const double *RA = Rnode + 9 * (size_t)nA;
         const double *RB = (nB >= 0) ? (Rnode + 9 * (size_t)nB) : R_EYE;
         const double *r0 = jr0 + 3 * (size_t)i;
         const double *e10 = je0 + 9 * (size_t)i, *e20 = e10 + 3, *e30 = e10 + 6;
@@ -1004,6 +1217,10 @@ void joints(int nj, const int *jna, const int *jnb, const int *jkind, const doub
                     M1 = 0.2 * kr_i * th1;
                     u_el_bolts += 0.5 * (M2 * M2 + M3 * M3) / kr_i + 0.5 * (0.2 * kr_i) * th1 * th1;
                 }
+            } else if (kr[i] > 0.0) {
+                /* Torsional roll restraint about beam axis e1 from shear tab / seat while major/minor bending stay pinned */
+                M1 = 0.2 * kr[i] * th1;
+                u_el_bolts += 0.5 * (0.2 * kr[i]) * th1 * th1;
             }
 
             double rn = (ncap[i] > 0.0) ? (Nten / ncap[i]) : 0.0;
@@ -1023,9 +1240,11 @@ void joints(int nj, const int *jna, const int *jnb, const int *jkind, const doub
                     }
                 } else {
                     jstate[i] = 2;
+                    n_changed += 1;
                     o[0] = Nten; o[1] = V_bolt; o[2] = sqrt(M2 * M2 + M3 * M3);
                     o[3] = u1; o[4] = (kind == 3) ? sqrt(u2 * u2 + u3 * u3) : fabs(u2);
                     o[5] = 0.0; o[6] += d_pl; o[7] += u_el_bolts + u_el_comp;
+                    step_lost += o[7];
                     continue;
                 }
             } else {
@@ -1040,21 +1259,27 @@ void joints(int nj, const int *jna, const int *jnb, const int *jkind, const doub
             if (kind == 1) {
                 if (u1 > walk_ax[i] || fabs(u2) > walk_lat[i]) {
                     jstate[i] = 2;
+                    n_changed += 1;
                     double u_rem = ((pen > 0.0) ? 0.5 * kc[i] * pen * pen : 0.0) + ((u3 < 0.0) ? 0.5 * kv[i] * u3 * u3 : 0.0);
                     o[0] = o[1] = o[2] = o[5] = 0.0; o[3] = u1; o[4] = fabs(u2); o[7] += u_rem;
+                    step_lost += o[7];
                     continue;
                 }
                 if (pen > 0.0) { F1 = -kc[i] * pen; u_el += 0.5 * kc[i] * pen * pen; }
                 if (u3 < 0.0)  { F3 =  kv[i] * u3;  u_el += 0.5 * kv[i] * u3 * u3; }
+                if (kr[i] > 0.0) { M1 = 0.2 * kr[i] * th1; u_el += 0.5 * (0.2 * kr[i]) * th1 * th1; }
             } else if (kind == 3) {
                 double u_lat = sqrt(u2 * u2 + u3 * u3);
                 if (u_lat > walk_lat[i]) {
                     jstate[i] = 2;
+                    n_changed += 1;
                     double u_rem = (pen > 0.0) ? 0.5 * kc[i] * pen * pen : 0.0;
                     o[0] = o[1] = o[2] = o[5] = 0.0; o[3] = u1; o[4] = u_lat; o[7] += u_rem;
+                    step_lost += o[7];
                     continue;
                 }
                 if (pen > 0.0) { F1 = -kc[i] * pen; u_el += 0.5 * kc[i] * pen * pen; }
+                if (kr[i] > 0.0) { M1 = 0.05 * kr[i] * th1; u_el += 0.5 * (0.05 * kr[i]) * th1 * th1; }
             }
         }
 
@@ -1062,19 +1287,23 @@ void joints(int nj, const int *jna, const int *jnb, const int *jkind, const doub
         for (int k = 0; k < 3; ++k) {
             Fg[k] = F1 * e1[k] + F2 * e2[k] + F3 * e3[k];
             Mg[k] = M1 * e1[k] + M2 * e2[k] + M3 * e3[k];
-            fint[6 * (size_t)nA + k]     += Fg[k];
-            fint[6 * (size_t)nA + 3 + k] += Mg[k];
+            fe[k]     = Fg[k];
+            fe[3 + k] = Mg[k];
         }
         if (nB >= 0) {
             double arm[3] = {xA[0] - xB[0], xA[1] - xB[1], xA[2] - xB[2]};
             double cM[3];
             cross(arm, Fg, cM);
             for (int k = 0; k < 3; ++k) {
-                fint[6 * (size_t)nB + k]     -= Fg[k];
-                fint[6 * (size_t)nB + 3 + k] -= (Mg[k] + cM[k]);
+                fe[6 + k] = -Fg[k];
+                fe[9 + k] = -(Mg[k] + cM[k]);
             }
         }
 
+        if (jstate[i] != st_prev) {
+            n_changed += 1;
+            step_lost += o[7];
+        }
         o[0] = (F1 > 0.0) ? F1 : 0.0;
         o[1] = sqrt(F2 * F2 + F3 * F3);
         o[2] = sqrt(M2 * M2 + M3 * M3);
@@ -1083,6 +1312,8 @@ void joints(int nj, const int *jna, const int *jnb, const int *jkind, const doub
         o[5] = u_el;
         o[6] += d_pl;
     }
+    *lost_out = step_lost;
+    return n_changed;
 }
 
 /* Mass-conserving node-to-master-patch (1 to 4 master nodes, or fixed point when mnode[4*i] < 0)
@@ -1095,6 +1326,7 @@ void contact_impact(int ni, const int *snode, const int *mnode, const double *mw
                     double dt, double gmax, double *ft, double *fint, double *out)
 {
     double o0 = 0, o1 = 0, o2 = 0, o3 = 0, o4 = 0, o5 = 0;
+#pragma omp parallel for schedule(static) reduction(+ : o0, o1, o2, o3, o4, o5) if (ni > 512)
     for (int i = 0; i < ni; ++i) {
         const int ns = snode[i];
         const double *xs = x + 3 * (size_t)ns, *vs = v + 3 * (size_t)ns;
@@ -1137,13 +1369,19 @@ void contact_impact(int ni, const int *snode, const int *mnode, const double *mw
             f[0] = f[1] = f[2] = 0.0;
 
         double F[3] = {fn * n[0] + f[0], fn * n[1] + f[1], fn * n[2] + f[2]};
-        for (int k = 0; k < 3; ++k) fint[6 * (size_t)ns + k] -= F[k];
+        for (int k = 0; k < 3; ++k) {
+#pragma omp atomic
+            fint[6 * (size_t)ns + k] -= F[k];
+        }
         if (mnode[4 * i] >= 0) {
             for (int I = 0; I < 4; ++I) {
                 int nm = mnode[4 * i + I];
                 if (nm >= 0) {
                     double w = mw[4 * i + I];
-                    for (int k = 0; k < 3; ++k) fint[6 * (size_t)nm + k] += w * F[k];
+                    for (int k = 0; k < 3; ++k) {
+#pragma omp atomic
+                        fint[6 * (size_t)nm + k] += w * F[k];
+                    }
                 }
             }
         }

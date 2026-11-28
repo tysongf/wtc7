@@ -141,3 +141,24 @@ sleeps as well (the half-rate runs took 3.7 to 4.7 h). No result depends on wall
   `results/phase3/verification.md`): `wtc7.xfe` (1.45 s wall time, energy balance error `0.03 %`) matches
   CalculiX 2.20 (`B31`, `*DYNAMIC`) within **4.08 %** at Floor 1 and **4.07 %** at the roof (inside the
   pre-registered `10 %` gate).
+
+### 2026-11-28: Steps 4 and 5 (FOIA drawing extraction and 47-storey 3D model verification)
+
+- Extracted storey elevations, 82 main column + 15 transfer sub-column plan coordinates, built-up column and
+  two-storey splice schedules, perimeter wind-girder schedules (`WG-1..58`), Transfer Trusses 1 to 3 and plate
+  girders (`MG-21, 22, 23, 27, 53`), east/west penthouses, and coupled connection rules (`phase3/data.py` ->
+  `data/phase3/*.json`, `docs/phase3_assumptions.md` `A100` to `A112`) from Frankel `E12/13`, `E120` and
+  Cantor `S-14`, `S-15`, `S-16`, `S-17`, `S-17A`, `S-18`, `S-22`, `S-23`.
+- Assembled the 47-storey + penthouse 3D model (`phase3/building_model.py`: `24,762` 6-DOF nodes = `148,572`
+  DOFs, `16,939` 16-fibre co-rotational beam-columns, `17,736` breakable interior/spandrel/splice/slab-tie
+  joints, `dt = 1.70e-4 s`, `0.337 %` added mass, `~2.68 ms/step` on 4 physical threads with L3-cached exact
+  elastic resultant tracking, lock-free sparse CSR joint gather, fused single-pass central-difference update,
+  and `.npz` settled-state checkpointing).
+- Static gravity verification (`phase3/verify_model.py` -> `results/phase3/model_summary.md` & `.json`):
+  settled at `t = 1.85 s` (`29.9 s` wall time) with `KE / IE = 0.065 %` (`< 1 %`), roof `|v_z| = 0.080 in./s`
+  (`< 0.10 in./s`), energy balance error `0.061 %` (`< 5 %`), zero prematurely detached joints under `1.0x`
+  service gravity, total Floor-8 gravity `173,637 kip` (`-0.29 %` vs NIST `174,136 kip` target), and East/Core
+  column axial loads matching `NCSTAR 1-9 Fig. 11-21` (`Col 79 = 7,632 kip` vs `7,525 kip`, `+1.4 %`;
+  `Col 80 = +0.2 %`; `Col 81 = -0.5 %`; `Col 76 = +0.3 %`; `Col 78 = +1.2 %`). First vertical superstructure
+  period `T_v1 = 0.649 s` fixes pre-registered removal duration `t_r = 0.0649 s` prior to any removal run.
+- Full test suite: `53 passed` (`41` Phase 1 + `8` Phase 3 solver + `4` Phase 3 47-storey building tests).
